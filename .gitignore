@@ -1,3 +1,6 @@
 /data/output/all_outputs/
 /data/output/model_test_runs/
 /data/output/threshold_window_size_tests/
+.idea/
+
+
