@@ -15,4 +15,3 @@ echo "== Scratch dir: ${TMPDIR}"
 
 source ../.venv/bin/activate
 python extract_triplets.py
-
