@@ -23,7 +23,7 @@ dt_string = now.strftime("_%Y_%m_%d_%H-%M-%S")
 
 #######################################################################
 
-model_name_full = "relik-ie/relik-cie-small" # relik-ie/relik-cie-xl
+model_name_full = "relik-ie/relik-cie-xl"
 model_name = model_name_full.replace('relik-ie/', '')
 corpus_name = 'meco'
 threshold = '0.1'
@@ -43,24 +43,25 @@ else:
 
 # source: https://github.com/SapienzaNLP/relik
 # Initialize the model with the current window size
-relik = Relik.from_pretrained(model_name_full, device="cuda", top_k=10, window_size=window_size)
-# relik_out: RelikOutput = relik(stimuli_df['text'].tolist())
+relik = Relik.from_pretrained(model_name_full, device=device, top_k=10, window_size=window_size)
 
+# TODO re-run on texts with tokenization errors: shaka, doping, thylacine, wed, monocle, beekeeping, nature
 # running model incrementally
 for text, keyword in zip(stimuli_df['text'].tolist(), stimuli_df['keyword'].tolist()):
 
-    # in the pre-processing of the texts (where extract_sentences is located),
-    # make sure splitting the text gives the same words as in the eye-tracking data for the correct alignment
-    words = text.split(' ')
+    if keyword in 'shaka, doping, thylacine, wed, monocle, beekeeping, nature'.split(', '):
 
-    for i in range(1, len(words)+1):
+        # in the pre-processing of the texts (where extract_sentences is located),
+        # make sure splitting the text gives the same words as in the eye-tracking data for the correct alignment
+        words = text.split()
 
-      context = " ".join(words[:i])
-      relik = Relik.from_pretrained(model_name_full, device="cuda", top_k=10, window_size=window_size, threshold=threshold)
-      relik_out: RelikOutput = relik(context)
+        for i in range(1, len(words)+1):
 
-      print("=== Relik Output ===")
-      pp.pprint(relik_out)
+            context = " ".join(words[:i])
+            relik_out: RelikOutput = relik(context)
 
-      with open(f"{output_dir}/{dt_string}/output_step_{i:03d}_{model_name}_{corpus_name}_{keyword}_{threshold}_{window_size}.json", "w") as f:
-          json.dump(relik_out.to_dict(), f, indent=4)
+            # print("=== Relik Output ===")
+            # pp.pprint(relik_out)
+
+            with open(f"{output_dir}/{dt_string}/output_step_{i:03d}_{model_name}_{corpus_name}_{keyword}_{threshold}_{window_size}.json", "w") as f:
+              json.dump(relik_out.to_dict(), f, indent=4)

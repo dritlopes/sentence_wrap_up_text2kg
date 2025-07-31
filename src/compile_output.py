@@ -4,7 +4,8 @@ import os
 import re
 import json
 from collections import defaultdict
-
+from process_corpus import check_alignment
+import numpy as np
 
 def map_text_to_step_outputs(model_name, corpus_name, step_dir, threshold, window_size, text_filepath):
 
@@ -147,7 +148,9 @@ def compile_steps(step_dir, dir_to_save_triplets, model_name, corpus_name, thres
 def add_triplets_to_eye_data(eye_df, triplets_df):
 
     triplets_df.rename(columns={"output_step": "ianum"}, inplace=True)
+
     df = pd.merge(eye_df, triplets_df[['text_id', 'ianum', 'total_triplets']], how='left', on=['text_id', 'ianum'])
+
     n_triplets = []
     for triplets in df['total_triplets'].tolist():
         if triplets == '[]' or pd.isna(triplets):
@@ -170,12 +173,17 @@ def main():
     dir_to_save_triplets = '../data/output/all_outputs'
     dir_to_save_final_data = '../data/output/eye_data_plus_triplets.csv'
 
+    # read in eye mov data
+    eye_df = pd.read_csv(eye_filepath)
+
     # compile all texts
     # compile_steps(step_dir, dir_to_save_triplets, model_name, corpus_name, threshold, window_size, text_filepath)
     triplets_df = pd.read_csv(f"{dir_to_save_triplets}/full_{model_name}_{corpus_name}.csv")
 
+    # check alignment between eye mov data and triplet data
+    check_alignment(triplets_df, eye_df)
+
     # add total_triplets and n_triplets to eye data
-    eye_df = pd.read_csv(eye_filepath)
     final_df = add_triplets_to_eye_data(eye_df, triplets_df)
     final_df.to_csv(dir_to_save_final_data)
 

@@ -71,7 +71,7 @@ def extract_meco_texts(data_dir:str):
     data["text"] = data["text"].str.replace("\\n", " ", regex=False)
     # when "word-word" add a space after first word, then the words would be separated equally
     data["text"] = data["text"].str.replace("-", "- ", regex=False)
-    # replace with a empty string all the quotation marks
+    # replace with an empty string all the quotation marks
     data["text"] = data["text"].str.replace('"', '', regex=False)
 
     # add column with keyword (most frequent content word) for each text
@@ -290,26 +290,15 @@ def check_alignment(words_df: pd.DataFrame, eye_df: pd.DataFrame):
     :param eye_df: fixation dataframe
     """
 
-    # create dict with text id and word id as keys and word form as value
-    words_df_dict = dict()
-    for trialid, group in words_df.groupby('text_id'):
-        words_df_dict[trialid] = dict()
-        for ia, ianum in zip(group['ia'].tolist(), group['ianum'].tolist()):
-            words_df_dict[trialid][ianum] = ia
-
     # for each word if and word in eye-movement dataframe, check if it's the same in word dataframe
     for id, data in eye_df.groupby(['participant_id', 'text_id']):
+        text_words = words_df[words_df['text_id'] == id[1]]
         for eye_ia, eye_ianum in zip(data['ia'].tolist(), data['ianum'].tolist()):
-            # in case word_id-word combination from eye-movement dataframe does not exist in words dataframe
-            assert eye_ianum in words_df_dict[id[1]].keys(), print(
-                f'Word id {eye_ianum} of text {id[1]} and participant '
-                f'{id[0]} in eye-tracking data not in words dataframe;'
-                f'{group}')
-            # in case word from eye-movement dataframe does not match word with same id in words dataframe
-            assert eye_ia == words_df_dict[id[1]][eye_ianum], print(
-                f'Word {eye_ia} (id {eye_ianum} in text {id[1]} of participant '
-                f'{id[0]}) in eye-tracking dataframe does not match word '
-                f'of same text and id in words dataframe ({words_df_dict[id[1]][eye_ianum]}).')
+            # find row in triplets df with word and word id from eye mov df
+            assert not text_words[
+                (text_words['output_step'] == eye_ianum) & (text_words['current_word'] == eye_ia)].empty, (
+                print(f'Word {eye_ia} with word id {eye_ianum} in eye mov data not in triplet data. '
+                      f'In triplet data, word id {eye_ianum} yields word "{text_words[text_words["output_step"] == eye_ianum]["current_word"].tolist()[0]}"'))
 
 def calculate_surprisal_values(df: pd.DataFrame,
                                model:GPT2LMHeadModel|LlamaForCausalLM,
@@ -487,6 +476,8 @@ def main():
     Process corpus files.
     Returns: write out processed file:
     """
+
+    # df = pd.read_csv('../data/raw/ia_Paragraph_ordinary.csv')
 
     # file with eye-tracking data
     eye_move_filepath = '../data/raw/joint_data_trimmed.csv'  # '../data/raw/Provo_Corpus-Eyetracking_Data.csv'
