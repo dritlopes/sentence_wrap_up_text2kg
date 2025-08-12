@@ -11,12 +11,18 @@ def map_text_to_step_outputs(model_name, corpus_name, step_dir, threshold, windo
 
     model_name = re.escape(model_name)
 
-    keywords = pd.read_csv(text_filepath)['keyword'].tolist()
+    if corpus_name in ['meco', 'provo']:
+        keywords = pd.read_csv(text_filepath)['keyword'].tolist()
+    elif corpus_name == 'onestop':
+        df = pd.read_csv(text_filepath)
+        keywords = [f'{article_batch}-{article_id}-{paragraph_id}-{difficulty_level}'
+                    for article_batch, article_id, paragraph_id, difficulty_level in
+                    zip(df['article_batch'].tolist(), df['article_id'].tolist(), df['paragraph_id'].tolist(), df['difficulty_level'].tolist())]
+    else:
+        raise NotImplementedError(f'Corpus name {corpus_name} not implemented. Choose from onestop, meco or provo.')
 
     step_filepaths_per_text = defaultdict(list)
-
     for keyword in keywords:
-
         pattern = rf"output_step_(\d+)_{model_name}_{corpus_name}_{keyword}_{threshold}_{window_size}.json"
         filename_re = re.compile(pattern, re.IGNORECASE)
         for file_name in os.listdir(step_dir):
@@ -82,50 +88,105 @@ def compile_steps(step_dir, dir_to_save_triplets, model_name, corpus_name, thres
             impacted = curr_set != prev_set
             added_trips = [t for t in curr_set if t not in prev_set]
             dropped_trips = [t for t in prev_set if t not in curr_set]
-
-            rows_all.append({
-                "text_id": counter,
-                "text_type": text_type,
-                "output_step": step - 1,
-                "current_word": data["text"].split()[-1],
-                "triplet_impacted": "yes" if impacted else "no",
-                "current_text": data["text"],
-                "total_triplets": simplified_triplets,
-                "triplet_scores": triplet_scores
-            })
-
             new_trips = [t for t in added_trips if t not in seen_ever]
 
-            if new_trips:
-                seen_ever.update(new_trips)
-                rows_add.append({
+            if corpus_name in ['meco','provo']:
+
+                rows_all.append({
                     "text_id": counter,
                     "text_type": text_type,
                     "output_step": step - 1,
                     "current_word": data["text"].split()[-1],
+                    "triplet_impacted": "yes" if impacted else "no",
                     "current_text": data["text"],
-                    "new_triplets": new_trips,
                     "total_triplets": simplified_triplets,
-                    "triplet_scores": triplet_scores,
+                    "triplet_scores": triplet_scores
                 })
 
-            if dropped_trips:
-                rows_drop.append({
-                    "text_id": counter,
-                    "text_type": text_type,
+                if new_trips:
+                    seen_ever.update(new_trips)
+                    rows_add.append({
+                        "text_id": counter,
+                        "text_type": text_type,
+                        "output_step": step - 1,
+                        "current_word": data["text"].split()[-1],
+                        "current_text": data["text"],
+                        "new_triplets": new_trips,
+                        "total_triplets": simplified_triplets,
+                        "triplet_scores": triplet_scores,
+                    })
+
+                if dropped_trips:
+                    rows_drop.append({
+                        "text_id": counter,
+                        "text_type": text_type,
+                        "output_step": step - 1,
+                        "current_word": data["text"].split()[-1],
+                        "current_text": data["text"],
+                        "dropped_triplets": dropped_trips,
+                        "total_triplets": simplified_triplets,
+                        "triplet_scores": triplet_scores,
+                    })
+
+            elif corpus_name == 'onestop':
+
+                text_type.split('-')
+
+                rows_all.append({
+                    "article_batch": text_type[0],
+                    'article_id': text_type[1],
+                    'paragraph_id': text_type[2],
+                    'difficulty_level': text_type[3],
                     "output_step": step - 1,
                     "current_word": data["text"].split()[-1],
+                    "triplet_impacted": "yes" if impacted else "no",
                     "current_text": data["text"],
-                    "dropped_triplets": dropped_trips,
                     "total_triplets": simplified_triplets,
-                    "triplet_scores": triplet_scores,
+                    "triplet_scores": triplet_scores
                 })
+
+                if new_trips:
+                    seen_ever.update(new_trips)
+                    rows_add.append({
+                        "article_batch": text_type[0],
+                        'article_id': text_type[1],
+                        'paragraph_id': text_type[2],
+                        'difficulty_level': text_type[3],
+                        "output_step": step - 1,
+                        "current_word": data["text"].split()[-1],
+                        "current_text": data["text"],
+                        "new_triplets": new_trips,
+                        "total_triplets": simplified_triplets,
+                        "triplet_scores": triplet_scores,
+                    })
+
+                if dropped_trips:
+                    rows_drop.append({
+                        "article_batch": text_type[0],
+                        'article_id': text_type[1],
+                        'paragraph_id': text_type[2],
+                        'difficulty_level': text_type[3],
+                        "output_step": step - 1,
+                        "current_word": data["text"].split()[-1],
+                        "current_text": data["text"],
+                        "dropped_triplets": dropped_trips,
+                        "total_triplets": simplified_triplets,
+                        "triplet_scores": triplet_scores,
+                    })
+            else:
+                raise NotImplementedError(f'Corpus {corpus_name} not implemented. Choose meco, provo, or onestop.')
 
             prev_set = curr_set
 
         counter += 1
 
-        df_full = (pd.DataFrame(rows_all).sort_values(["text_id", "output_step"]).reset_index(drop=True))
+        if corpus_name in ['meco','provo']:
+            df_full = (pd.DataFrame(rows_all).sort_values(["text_id", "output_step"]).reset_index(drop=True))
+        elif corpus_name == 'onestop':
+            df_full = pd.DataFrame(rows_all).sort_values(["article_batch", "article_id", "paragraph_id", "difficulty_level", "output_step"]).reset_index(drop=True)
+        else:
+            raise NotImplementedError(f'Corpus {corpus_name} not implemented. Choose meco, provo, or onestop.')
+
         additions_df = pd.DataFrame(rows_add).sort_values("output_step").reset_index(drop=True)
         deletions_df = pd.DataFrame(rows_drop).sort_values("output_step").reset_index(drop=True)
 
@@ -151,10 +212,13 @@ def add_triplets_to_eye_data(corpus_name, eye_df, triplets_df):
 
     if corpus_name == 'meco':
 
-        df = pd.merge(eye_df, triplets_df[['text_id', 'ianum', 'total_triplets', 'triplet_scores']], how='left', on=['text_id', 'ianum'])
+        df = pd.merge(eye_df, triplets_df[['text_id', 'ianum', 'ia', 'total_triplets', 'triplet_scores']], how='left',
+                      on=['text_id', 'ianum', 'ia'])
 
     elif corpus_name == 'onestop':
-        pass
+        df = pd.merge(eye_df, triplets_df[['article_batch', 'article_id', 'difficulty_level', 'paragraph_id', 'ianum',
+                                           'ia', 'total_triplets', 'triplet_scores']], how='left',
+                      on=['article_batch', 'article_id', 'difficulty_level', 'paragraph_id', 'ianum', 'ia'])
 
     else:
         raise NotImplementedError(f'Corpus {corpus_name} not implemented. Choose between "meco", "onestop"')
@@ -169,9 +233,9 @@ def add_triplets_to_eye_data(corpus_name, eye_df, triplets_df):
 
 def main():
 
-    corpus_name = 'meco'
+    corpus_name = 'onestop'
     eye_filepath = f'../data/processed/{corpus_name}_eye_mov.csv'
-    step_dir = f'../data/output/step_outputs_{corpus_name}/_2025_07_31_14-54-48'
+    step_dir = f'../data/output/step_outputs_{corpus_name}/_2025_07_31_14-54-48' # TODO change to output with onestop
     model_name = 'relik-cie-xl'
     threshold = '0.1'
     window_size = '128'
@@ -183,14 +247,12 @@ def main():
     eye_df = pd.read_csv(eye_filepath)
 
     # compile all texts
-    # TODO change function to include onestop variables
-    # compile_steps(step_dir, dir_to_save_triplets, model_name, corpus_name, threshold, window_size, text_filepath)
+    compile_steps(step_dir, dir_to_save_triplets, model_name, corpus_name, threshold, window_size, text_filepath)
     triplets_df = pd.read_csv(f"{dir_to_save_triplets}/full_{model_name}_{corpus_name}.csv")
 
     # check alignment between eye mov data and triplet data
-    # check_alignment(corpus_name, triplets_df, eye_df)
+    check_alignment(corpus_name, triplets_df, eye_df)
 
-    # TODO check Insects Could be the Planets Next Food Source (Adv) bcs of tokenization inconsistency.
     # add total_triplets and n_triplets to eye data
     final_df = add_triplets_to_eye_data(corpus_name, eye_df, triplets_df)
     final_df.to_csv(dir_to_save_final_data)
