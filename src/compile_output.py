@@ -145,46 +145,54 @@ def compile_steps(step_dir, dir_to_save_triplets, model_name, corpus_name, thres
     all_adds_df.to_csv(f"{dir_to_save_triplets}/additions_{model_name}_{corpus_name}.csv", index=False)
     all_drops_df.to_csv(f"{dir_to_save_triplets}/deletions_{model_name}_{corpus_name}.csv", index=False)
 
-def add_triplets_to_eye_data(eye_df, triplets_df):
+def add_triplets_to_eye_data(corpus_name, eye_df, triplets_df):
 
     triplets_df.rename(columns={"output_step": "ianum"}, inplace=True)
 
-    df = pd.merge(eye_df, triplets_df[['text_id', 'ianum', 'total_triplets']], how='left', on=['text_id', 'ianum'])
+    if corpus_name == 'meco':
 
-    n_triplets = []
-    for triplets in df['total_triplets'].tolist():
-        if triplets == '[]' or pd.isna(triplets):
-            n_triplets.append(0)
-        else:
-            n_triplets.append(len(triplets.split('),')))
-    df['n_triplets'] = n_triplets
+        df = pd.merge(eye_df, triplets_df[['text_id', 'ianum', 'total_triplets', 'triplet_scores']], how='left', on=['text_id', 'ianum'])
+
+    elif corpus_name == 'onestop':
+        pass
+
+    else:
+        raise NotImplementedError(f'Corpus {corpus_name} not implemented. Choose between "meco", "onestop"')
+
+    # add number of triplets
+    df['n_triplets'] = [0 if triplets == '[]' or pd.isna(triplets) else len(triplets.split('),')) for triplets in df['total_triplets'].tolist()]
+    # add summed scores
+    df['triplet_scores'] = df['triplet_scores'].apply(lambda x: x.replace('[', '').replace(']', '').split(', '))
+    df['sum_scores'] = [sum([float(score.strip()) for score in triplets]) if any(triplets) else 0 for triplets in df['triplet_scores'].tolist()]
 
     return df
 
 def main():
 
-    eye_filepath = '../data/processed/meco_eye_mov.csv'
-    step_dir = '../data/output/step_outputs'
+    corpus_name = 'meco'
+    eye_filepath = f'../data/processed/{corpus_name}_eye_mov.csv'
+    step_dir = f'../data/output/step_outputs_{corpus_name}/_2025_07_31_14-54-48'
     model_name = 'relik-cie-xl'
     threshold = '0.1'
     window_size = '128'
-    corpus_name = 'meco'
     text_filepath = f'../data/processed/{corpus_name}_texts.csv'
-    dir_to_save_triplets = '../data/output/all_outputs'
-    dir_to_save_final_data = '../data/output/eye_data_plus_triplets.csv'
+    dir_to_save_triplets = f'../data/output/all_outputs_{corpus_name}'
+    dir_to_save_final_data = f'../data/output/eye_data_plus_triplets_{corpus_name}.csv'
 
     # read in eye mov data
     eye_df = pd.read_csv(eye_filepath)
 
     # compile all texts
+    # TODO change function to include onestop variables
     # compile_steps(step_dir, dir_to_save_triplets, model_name, corpus_name, threshold, window_size, text_filepath)
     triplets_df = pd.read_csv(f"{dir_to_save_triplets}/full_{model_name}_{corpus_name}.csv")
 
     # check alignment between eye mov data and triplet data
-    check_alignment(triplets_df, eye_df)
+    # check_alignment(corpus_name, triplets_df, eye_df)
 
+    # TODO check Insects Could be the Planets Next Food Source (Adv) bcs of tokenization inconsistency.
     # add total_triplets and n_triplets to eye data
-    final_df = add_triplets_to_eye_data(eye_df, triplets_df)
+    final_df = add_triplets_to_eye_data(corpus_name, eye_df, triplets_df)
     final_df.to_csv(dir_to_save_final_data)
 
 if __name__ == '__main__':
