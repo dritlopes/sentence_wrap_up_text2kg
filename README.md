@@ -1,4 +1,4 @@
-# Proposition generation and eye movements in reading
+# Triplet generation and eye movements in reading
 
 This repo contains the code for analysing the relation between contextual information and eye movements in reading. Contextual information processing is approximated by the formation of _triplets_ (entities and relations between entities) as we go through text. 
 
