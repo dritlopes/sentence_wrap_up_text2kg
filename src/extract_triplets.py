@@ -68,14 +68,17 @@ if corpus_name == 'onestop':
                                                                              texts_df['difficulty_level'].tolist(),
                                                                              texts_df['paragraph_id'].tolist(),
                                                                              texts_df['paragraph'].tolist()):
-        # make sure splitting text on space will give the same words as in eye mov data (tokenization alignment)
-        words = text.split(' ')
-        for i in range(1, len(words)+1):
-            context = " ".join(words[:i])
-            relik_out: RelikOutput = relik(context)
-            # print("=== Relik Output ===")
-            # pp.pprint(relik_out)
-            filepath = (f"{output_dir}/{dt_string}/output_step_{i:03d}_{model_name}_{corpus_name}_{article_batch}-"
-                        f"{article_id}-{paragraph_id}-{difficulty_level}_{threshold}_{window_size}.json")
-            with open(filepath, "w") as f:
-              json.dump(relik_out.to_dict(), f, indent=4)
+        # if (article_batch == 2 and article_id >= 6 and difficulty_level == 'Ele' and paragraph_id >= 3) or (article_batch == 2 and article_id >= 6 and difficulty_level == 'Adv' and paragraph_id >= 4) or (article_batch == 3):
+        if ((article_batch == 2 and article_id in [7,8,9] and difficulty_level == 'Ele' and paragraph_id in [0,1,2])
+                or (article_batch == 2 and article_id in [7,8,9] and difficulty_level == 'Adv' and paragraph_id in [0,1,2,3])):
+            # make sure splitting text on space will give the same words as in eye mov data (tokenization alignment)
+            words = text.split(' ')
+            for i in range(1, len(words)+1):
+                context = " ".join(words[:i])
+                relik_out: RelikOutput = relik(context)
+                # print("=== Relik Output ===")
+                # pp.pprint(relik_out)
+                filepath = (f"{output_dir}/{dt_string}/output_step_{i:03d}_{model_name}_{corpus_name}_{article_batch}-"
+                            f"{article_id}-{paragraph_id}-{difficulty_level}_{threshold}_{window_size}.json")
+                with open(filepath, "w") as f:
+                  json.dump(relik_out.to_dict(), f, indent=4)

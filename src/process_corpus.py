@@ -385,6 +385,7 @@ def pre_process_onestop_data(filepath):
     df = df.loc[~(df['article_id'] == 0)]
 
     # ids start at 0
+    df['article_id'] = df['article_id'].apply(lambda x: int(x) - 1)
     df['paragraph_id'] = df['paragraph_id'].apply(lambda x: int(x) - 1)
     df['ianum'] = df['ianum'].apply(lambda x: int(x) - 1)
 
@@ -580,12 +581,16 @@ def check_alignment(corpus_name:str, words_df: pd.DataFrame, eye_df: pd.DataFram
                           f'In text data, word id {eye_ianum} yields word "{text_words[text_words["ianum"] == eye_ianum]["ia"].tolist()[0]}"'))
 
     elif corpus_name == 'onestop':
-        for id, data in eye_df.groupby(['participant_id', 'article_title', 'difficulty_level', 'paragraph_id']):
-            text_words = words_df[(words_df['article_title'] == id[1]) & (words_df['difficulty_level'] == id[2]) & (words_df['paragraph_id'] == id[3])]
+        for id, data in eye_df.groupby(['participant_id', 'article_batch', 'article_id', 'difficulty_level', 'paragraph_id']):
+            text_words = words_df[(words_df['article_batch'] == id[1]) & (words_df['article_id'] == id[2]) & (words_df['difficulty_level'] == id[3]) & (words_df['paragraph_id'] == id[4])]
             for eye_ia, eye_ianum in zip(data['ia'].tolist(), data['ianum'].tolist()):
+                # if word_id in eye movemement data does not exist in words data
+                assert not text_words[text_words["ianum"] == eye_ianum].empty, (
+                    print(f'ianum {eye_ianum} ({id[0]},{id[1]},{id[2]},{id[3]},{id[4]}) in eye mov data not in text data. '))
+                # if word_id in eye movement data yields a different word form in words data
                 assert not text_words[
                     (text_words['ianum'] == eye_ianum) & (text_words['ia'] == eye_ia)].empty, (
-                    print(f'Word {eye_ia} with word id {eye_ianum} ({id[0]},{id[1]},{id[2]},{id[3]}) in eye mov data not in text data. '
+                    print(f'Word {eye_ia} with word id {eye_ianum} ({id[0]},{id[1]},{id[2]},{id[3]},{id[4]}) in eye mov data not in text data. '
                           f'In text data, word id {eye_ianum} yields word {text_words[text_words["ianum"] == eye_ianum]["ia"].tolist()[0]}'))
 
     else:

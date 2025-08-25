@@ -46,6 +46,9 @@ def compile_steps(step_dir, dir_to_save_triplets, model_name, corpus_name, thres
 
     for text_type, files in files_by_type.items():
 
+        if corpus_name == 'onestop':
+            text_type = text_type.split('-')
+
         rows_all, rows_drop, rows_add = [],[],[]
 
         files.sort(key=lambda x: x[0])
@@ -130,8 +133,6 @@ def compile_steps(step_dir, dir_to_save_triplets, model_name, corpus_name, thres
 
             elif corpus_name == 'onestop':
 
-                text_type.split('-')
-
                 rows_all.append({
                     "article_batch": text_type[0],
                     'article_id': text_type[1],
@@ -180,31 +181,46 @@ def compile_steps(step_dir, dir_to_save_triplets, model_name, corpus_name, thres
 
         counter += 1
 
-        if corpus_name in ['meco','provo']:
-            df_full = (pd.DataFrame(rows_all).sort_values(["text_id", "output_step"]).reset_index(drop=True))
-        elif corpus_name == 'onestop':
-            df_full = pd.DataFrame(rows_all).sort_values(["article_batch", "article_id", "paragraph_id", "difficulty_level", "output_step"]).reset_index(drop=True)
-        else:
-            raise NotImplementedError(f'Corpus {corpus_name} not implemented. Choose meco, provo, or onestop.')
+        if len(rows_all) > 0:
+            df_full = (pd.DataFrame(rows_all).sort_values(["output_step"]).reset_index(drop=True))
+            df_full.to_csv(f"{dir_to_save_triplets}/full_{model_name}_{corpus_name}_{text_type}.csv",
+                           index=False)
+            all_full.append(df_full)
+        if len(rows_add) > 0:
+            additions_df = pd.DataFrame(rows_add).sort_values(["output_step"]).reset_index(drop=True)
+            additions_df.to_csv(f"{dir_to_save_triplets}/additions_{model_name}_{corpus_name}_{text_type}.csv",
+                                index=False)
+            all_adds.append(additions_df)
+        if len(rows_drop) > 0:
+            deletions_df = pd.DataFrame(rows_drop).sort_values(["output_step"]).reset_index(drop=True)
+            deletions_df.to_csv(f"{dir_to_save_triplets}/deletions_{model_name}_{corpus_name}_{text_type}.csv",
+                                index=False)
+            all_drops.append(deletions_df)
 
-        additions_df = pd.DataFrame(rows_add).sort_values("output_step").reset_index(drop=True)
-        deletions_df = pd.DataFrame(rows_drop).sort_values("output_step").reset_index(drop=True)
+    if corpus_name in ['meco', 'provo']:
+        columns_sort = ["text_id", "output_step"]
+    elif corpus_name == 'onestop':
+        columns_sort = ["article_batch", "article_id", "paragraph_id", "difficulty_level", "output_step"]
+    else:
+        raise NotImplementedError(f'Corpus {corpus_name} not implemented.')
 
-        df_full.to_csv(f"{dir_to_save_triplets}/full_{model_name}_{corpus_name}_{text_type}.csv", index=False)
-        additions_df.to_csv(f"{dir_to_save_triplets}/additions_{model_name}_{corpus_name}_{text_type}.csv", index=False)
-        deletions_df.to_csv(f"{dir_to_save_triplets}/deletions_{model_name}_{corpus_name}_{text_type}.csv", index=False)
+    if len(all_full) > 0:
+        all_full_df = pd.concat(all_full, ignore_index=True)
+        all_full_df = all_full_df.sort_values(columns_sort).reset_index(drop=True)
+        all_full_df.to_csv(f"{dir_to_save_triplets}/full_{model_name}_{corpus_name}.csv", index=False)
+    else:
+        raise ValueError(f'No data found.')
 
-        all_full.append(df_full)
-        all_adds.append(additions_df)
-        all_drops.append(deletions_df)
+    if len(all_adds) > 0:
+        all_adds_df = pd.concat(all_adds, ignore_index=True)
+        all_adds_df = all_adds_df.sort_values(columns_sort).reset_index(drop=True)
+        all_adds_df.to_csv(f"{dir_to_save_triplets}/additions_{model_name}_{corpus_name}.csv", index=False)
+    if len(all_drops) > 0:
+        all_drops_df = pd.concat(all_drops, ignore_index=True)
+        all_drops_df = all_drops_df.sort_values(columns_sort).reset_index(drop=True)
+        all_drops_df.to_csv(f"{dir_to_save_triplets}/deletions_{model_name}_{corpus_name}.csv", index=False)
 
-    all_full_df = pd.concat(all_full, ignore_index=True)
-    all_adds_df = pd.concat(all_adds, ignore_index=True)
-    all_drops_df = pd.concat(all_drops, ignore_index=True)
-
-    all_full_df.to_csv(f"{dir_to_save_triplets}/full_{model_name}_{corpus_name}.csv", index=False)
-    all_adds_df.to_csv(f"{dir_to_save_triplets}/additions_{model_name}_{corpus_name}.csv", index=False)
-    all_drops_df.to_csv(f"{dir_to_save_triplets}/deletions_{model_name}_{corpus_name}.csv", index=False)
+    return all_full_df
 
 def add_triplets_to_eye_data(corpus_name, eye_df, triplets_df):
 
@@ -219,6 +235,9 @@ def add_triplets_to_eye_data(corpus_name, eye_df, triplets_df):
         df = pd.merge(eye_df, triplets_df[['article_batch', 'article_id', 'difficulty_level', 'paragraph_id', 'ianum',
                                            'ia', 'total_triplets', 'triplet_scores']], how='left',
                       on=['article_batch', 'article_id', 'difficulty_level', 'paragraph_id', 'ianum', 'ia'])
+        df['text_id'] = [f'{article_batch}-{article_id}-{difficulty_level}'
+                         for article_batch, article_id, difficulty_level in
+                         zip(df['article_batch'].tolist(), df['article_id'].tolist(), df['difficulty_level'].tolist())]
 
     else:
         raise NotImplementedError(f'Corpus {corpus_name} not implemented. Choose between "meco", "onestop"')
@@ -235,10 +254,10 @@ def main():
 
     corpus_name = 'onestop'
     eye_filepath = f'../data/processed/{corpus_name}_eye_mov.csv'
-    step_dir = f'../data/output/step_outputs_{corpus_name}/_2025_07_31_14-54-48' # TODO change to output with onestop
+    step_dir = f'../data/output/step_outputs_{corpus_name}/_2025_08_23_10-52-11'
     model_name = 'relik-cie-xl'
     threshold = '0.1'
-    window_size = '128'
+    window_size = '128' # None
     text_filepath = f'../data/processed/{corpus_name}_texts.csv'
     dir_to_save_triplets = f'../data/output/all_outputs_{corpus_name}'
     dir_to_save_final_data = f'../data/output/eye_data_plus_triplets_{corpus_name}.csv'
@@ -247,8 +266,8 @@ def main():
     eye_df = pd.read_csv(eye_filepath)
 
     # compile all texts
-    compile_steps(step_dir, dir_to_save_triplets, model_name, corpus_name, threshold, window_size, text_filepath)
-    triplets_df = pd.read_csv(f"{dir_to_save_triplets}/full_{model_name}_{corpus_name}.csv")
+    triplets_df = compile_steps(step_dir, dir_to_save_triplets, model_name, corpus_name, threshold, window_size, text_filepath)
+    # triplets_df = pd.read_csv(f"{dir_to_save_triplets}/full_{model_name}_{corpus_name}.csv")
 
     # check alignment between eye mov data and triplet data
     check_alignment(corpus_name, triplets_df, eye_df)

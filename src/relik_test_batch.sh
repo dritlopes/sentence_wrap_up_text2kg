@@ -1,7 +1,7 @@
 #!/bin/bash -l
 #SBATCH -J Relik-testing
 #SBATCH -N 1
-#SBATCH --ntasks-per-node=4
+#SBATCH --ntasks-per-node=2
 #SBATCH --nodelist=node[010-014]
 #SBATCH --gpus=1
 #SBATCH --mail-type=START,END,FAIL
