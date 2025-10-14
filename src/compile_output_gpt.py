@@ -142,9 +142,10 @@ def compile_output_gpt(triplets:dict, words_df:pd.DataFrame, corpus=''):
             triplet_map[f'{article_batch}-{article_id}-{difficulty_level}-{paragraph_id}'] = word_to_triplet
 
     elif corpus in ['meco','provo']:
+        words_df['text_id'] = words_df['text_id'].astype(str)
         for text_metadata in triplets:
             text_triplets = text_metadata['extracted_triplets']
-            text_id = text_metadata['text_id']
+            text_id = str(text_metadata['text_id'])
             # filter words data for the current text
             words_df_filtered = words_df[(words_df['text_id'] == text_id)]
             word_to_triplet = align_triplets_to_words(text_triplets, words_df_filtered,corpus)
@@ -184,9 +185,9 @@ def add_triplets_to_words_df(triplet_map:dict, words_df:pd.DataFrame, corpus:str
         raise ValueError(f'Triplet mapping is empty.')
 
 
-CORPUS = 'meco'
+CORPUS = 'provo'
 MODEL = 'gpt-4o-mini'
-N_RUNS = 2
+N_RUNS = 10
 
 # read eye movement word data
 words_df = pd.read_csv(f'../data/processed/{CORPUS}_words.csv')
@@ -206,36 +207,55 @@ for run in range(1, N_RUNS+1):
     output_eye_run_filepath = f'../data/output/{MODEL}/{CORPUS}/{CORPUS}_eye_mov_plus_triplets_{MODEL}_{run}.csv'
 
     if os.path.exists(output_eye_run_filepath):
-        eye_df = pd.read_csv(output_eye_run_filepath)
-        datasets.append(eye_df)
+        df = pd.read_csv(output_eye_run_filepath)
+        datasets.append(df)
 
     else:
 
-        # read in triplets data
-        with open(f'../data/output/{MODEL}/{CORPUS}/{MODEL}_triplets_{CORPUS}_{run}.json', 'r', encoding='utf-8') as f:
-            triplets = json.load(f)
-
-        # align triplets to words in word data
         output_word_run_filepath = f'../data/output/{MODEL}/{CORPUS}/{CORPUS}_words_plus_triplets_{MODEL}_{run}.csv'
-        triplet_map = compile_output_gpt(triplets, words_df, CORPUS)
-        words_with_triplets_df = add_triplets_to_words_df(triplet_map, words_df, CORPUS)
-        words_with_triplets_df.to_csv(output_word_run_filepath, index=False)
-        # words_with_triplets_df = pd.read_csv(output_run_filepath)
+
+        if os.path.exists(output_word_run_filepath):
+            words_with_triplets_df = pd.read_csv(output_word_run_filepath)
+
+        else:
+            print(f'Aligning triplets from run {run} to words in corpus...')
+
+            # read in triplets data
+            with open(f'../data/output/{MODEL}/{CORPUS}/{MODEL}_triplets_{CORPUS}_{run}.json', 'r', encoding='utf-8') as f:
+                triplets = json.load(f)
+
+            # align triplets to words in word data
+            triplet_map = compile_output_gpt(triplets, words_df, CORPUS)
+            words_with_triplets_df = add_triplets_to_words_df(triplet_map, words_df, CORPUS)
+            words_with_triplets_df.to_csv(output_word_run_filepath, index=False)
+            # words_with_triplets_df = pd.read_csv(output_run_filepath)
+
+        print(f'Adding triplets from run {run} to eye movement data...')
 
         # add triplets to eye mov data
         if CORPUS == 'onestop':
-            eye_df = pd.merge(eye_df, words_with_triplets_df[['article_title', 'difficulty_level', 'paragraph_id', 'ianum', 'triplets', 'n_triplets']],
+            df = pd.merge(eye_df, words_with_triplets_df[['article_title', 'difficulty_level', 'paragraph_id', 'ianum', 'triplets', 'n_triplets']],
                               how='left', on=['article_title', 'difficulty_level', 'paragraph_id', 'ianum'])
-            eye_df['text_id'] = [f'{article_batch}-{article_id}-{difficulty_level}'
+            df['text_id'] = [f'{article_batch}-{article_id}-{difficulty_level}'
                                      for article_batch, article_id, difficulty_level in
                                      zip(eye_df['article_batch'].tolist(), eye_df['article_id'].tolist(), eye_df['difficulty_level'].tolist())]
         elif CORPUS in ['meco','provo']:
-            eye_df = pd.merge(eye_df, words_with_triplets_df[['text_id', 'ianum', 'triplets', 'n_triplets']],
+            words_with_triplets_df['text_id'] = words_with_triplets_df['text_id'].astype(str)
+            words_with_triplets_df['ianum'] = words_with_triplets_df['ianum'].astype(str)
+            eye_df['text_id'] = eye_df['text_id'].astype(str)
+            eye_df['ianum'] = eye_df['ianum'].astype(str)
+            df = pd.merge(eye_df, words_with_triplets_df[['text_id', 'ianum', 'triplets', 'n_triplets']],
                               how='left', on=['text_id', 'ianum'])
-        eye_df['run_id'] = [run for i in range(len(eye_df))]
-        eye_df.to_csv(output_eye_run_filepath, index=False)
-        datasets.append(eye_df)
+        else:
+            raise NotImplementedError(f'Corpus {CORPUS} not implemented')
+
+        df['run_id'] = [run for i in range(len(df))]
+        # df.to_csv(output_eye_run_filepath, index=False)
+        datasets.append(df)
 
 # merge data of all runs
 df = pd.concat(datasets, ignore_index=True)
-df.tocsv(f'../data/output/{MODEL}/{CORPUS}/{CORPUS}_eye_mov_plus_triplets_{MODEL}.csv', index=False)
+df.to_csv(f'../data/output/{MODEL}/{CORPUS}/{CORPUS}_eye_mov_plus_triplets_{MODEL}.csv', index=False)
+for run, group in df.groupby(['run_id']):
+    print(run)
+    print(group['text_id'].unique())

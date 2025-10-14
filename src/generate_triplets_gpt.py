@@ -11,7 +11,7 @@ import time
 load_dotenv()
 
 # Define constants
-CORPUS = 'provo' # options: 'onestop', 'meco', 'provo'
+CORPUS = 'onestop' # options: 'onestop', 'meco', 'provo'
 MODEL = "gpt-4o-mini"
 INPUT_FILEPATH = f"../data/processed/{CORPUS}_texts.csv"
 OUTPUT_FILEPATH = f"../data/output/{MODEL}/{CORPUS}/{MODEL}_triplets_{CORPUS}.json"

@@ -12,6 +12,7 @@ import numpy as np
 # plt.clf()
 
 # NUMBER OF TRIPLETS
+
 # number of triplets per word position in sentence
 # df = pd.read_csv('../data/output/eye_data_plus_triplets_onestop_article.csv')
 # df.dropna(subset=['n_triplets'], inplace=True)
@@ -30,6 +31,7 @@ import numpy as np
 # plt.tight_layout()
 # plt.show()
 # plt.clf()
+
 # number of triplets per word position in paragraph
 # df = pd.read_csv('../data/output/eye_data_plus_triplets_onestop_article.csv')
 # df.dropna(subset=['n_triplets'], inplace=True)
