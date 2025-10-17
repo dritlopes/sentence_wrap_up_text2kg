@@ -202,6 +202,7 @@ if CORPUS in ['meco','provo']:
 
 # iterate over runs
 datasets = []
+word_datasets = []
 for run in range(1, N_RUNS+1):
 
     output_eye_run_filepath = f'../data/output/{MODEL}/{CORPUS}/{CORPUS}_eye_mov_plus_triplets_{MODEL}_{run}.csv'
@@ -216,7 +217,9 @@ for run in range(1, N_RUNS+1):
 
         if os.path.exists(output_word_run_filepath):
             words_with_triplets_df = pd.read_csv(output_word_run_filepath)
-
+            if 'run_id' not in words_with_triplets_df.columns:
+                words_with_triplets_df['run_id'] = [run for i in range(len(words_with_triplets_df))]
+            word_datasets.append(words_with_triplets_df)
         else:
             print(f'Aligning triplets from run {run} to words in corpus...')
 
@@ -229,6 +232,8 @@ for run in range(1, N_RUNS+1):
             words_with_triplets_df = add_triplets_to_words_df(triplet_map, words_df, CORPUS)
             words_with_triplets_df.to_csv(output_word_run_filepath, index=False)
             # words_with_triplets_df = pd.read_csv(output_run_filepath)
+            words_with_triplets_df['run_id'] = [run for i in range(len(words_with_triplets_df))]
+            word_datasets.append(words_with_triplets_df)
 
         print(f'Adding triplets from run {run} to eye movement data...')
 
@@ -236,9 +241,10 @@ for run in range(1, N_RUNS+1):
         if CORPUS == 'onestop':
             df = pd.merge(eye_df, words_with_triplets_df[['article_title', 'difficulty_level', 'paragraph_id', 'ianum', 'triplets', 'n_triplets']],
                               how='left', on=['article_title', 'difficulty_level', 'paragraph_id', 'ianum'])
-            df['text_id'] = [f'{article_batch}-{article_id}-{difficulty_level}'
-                                     for article_batch, article_id, difficulty_level in
-                                     zip(eye_df['article_batch'].tolist(), eye_df['article_id'].tolist(), eye_df['difficulty_level'].tolist())]
+            if 'text_article_id' not in df.columns: # TODO change text id to article id in the R analysis
+                df['text_article_id'] = [f'{article_batch}-{article_id}-{difficulty_level}'
+                                         for article_batch, article_id, difficulty_level in
+                                         zip(eye_df['article_batch'].tolist(), eye_df['article_id'].tolist(), eye_df['difficulty_level'].tolist())]
         elif CORPUS in ['meco','provo']:
             words_with_triplets_df['text_id'] = words_with_triplets_df['text_id'].astype(str)
             words_with_triplets_df['ianum'] = words_with_triplets_df['ianum'].astype(str)
@@ -256,6 +262,8 @@ for run in range(1, N_RUNS+1):
 # merge data of all runs
 df = pd.concat(datasets, ignore_index=True)
 df.to_csv(f'../data/output/{MODEL}/{CORPUS}/{CORPUS}_eye_mov_plus_triplets_{MODEL}.csv', index=False)
-for run, group in df.groupby(['run_id']):
-    print(run)
-    print(group['text_id'].unique())
+df2 = pd.concat(word_datasets, ignore_index=True)
+df2.to_csv(f'../data/output/{MODEL}/{CORPUS}/{CORPUS}_words_plus_triplets_{MODEL}.csv', index=False)
+# for run, group in df.groupby(['run_id']):
+#     print(run)
+#     print(group['text_id'].unique())

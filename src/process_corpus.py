@@ -668,40 +668,21 @@ def calculate_surprisal_values(df: pd.DataFrame,
 
     return surprisal_values, model_tokens, corpus_tokens
 
-def add_word_surprisal(words_filepath):
+def add_word_surprisal(words_df):
 
-    path_to_save = words_filepath.replace('words.csv', 'surprisal.csv')
+    print('Computing word surprisal...')
 
-    if os.path.exists(path_to_save):
-        surprisal_df = pd.read_csv(path_to_save)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print('Using device ', str(device))
 
-    else:
-        print('Computing word surprisal...')
+    model = GPT2LMHeadModel.from_pretrained('gpt2').to(device)
+    tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
 
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        print('Using device ', str(device))
+    # compute surprisal values
+    surprisal_values, model_tokens, corpus_tokens = calculate_surprisal_values(words_df, model, tokenizer, device)
+    words_df['surprisal'] = surprisal_values
 
-        model = GPT2LMHeadModel.from_pretrained('gpt2').to(device)
-        tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
-
-        # compute surprisal values
-        surprisal_df = pd.read_csv(words_filepath)
-        surprisal_values, model_tokens, corpus_tokens = calculate_surprisal_values(surprisal_df, model, tokenizer, device)
-        surprisal_df['surprisal'] = surprisal_values
-
-        # write out surprisal dataset
-        directory = os.path.dirname(path_to_save)
-        if not os.path.isdir(directory): os.mkdir(directory)
-        surprisal_df.to_csv(path_to_save, index=False)
-
-        # write out which words in the corpus are multi-tokens in the model
-        path_to_save_multi_tokens = path_to_save.replace('.csv', '_multi_tokens.csv')
-        with open(path_to_save_multi_tokens, 'w') as outfile:
-            outfile.write(f'CORPUS_TOKEN\tMODEL_TOKEN\n')
-            for model_token, corpus_token in zip(model_tokens, corpus_tokens):
-                outfile.write(f'{corpus_token}\t{model_token}\n')
-
-    return surprisal_df
+    return words_df, model_tokens, corpus_tokens
 
 def assign_sentence(group):
 
@@ -766,10 +747,84 @@ def assign_sentence_frequency(group):
 def normalize(values):
     return (np.array(values) - np.min(values)) / (np.max(values) - np.min(values))
 
-def add_variables(variables:list[str],
+def add_variables_to_word_data(words_df, variables, corpus_name, frequency_filepath='', surprisal_filepath='', path_to_save_multi_tokens=''):
+
+    if corpus_name in ['meco', 'provo']:
+
+        if 'length' in variables:
+            words_df['length'] = [len(str(word)) for word in words_df['ia'].tolist()]
+
+        if 'frequency' in variables and frequency_filepath:
+            words_df['frequency'] = add_word_frequency(words_df, corpus_name, frequency_filepath)
+
+        if 'surprisal' in variables:
+            if surprisal_filepath:
+                surprisal_df = pd.read_csv(surprisal_filepath)
+                words_df = words_df.merge(surprisal_df[['text_id','ianum','ia','surprisal']],
+                              how='left', on=['text_id','ianum','ia'])
+            else:
+                words_df, model_tokens, corpus_tokens = add_word_surprisal(words_df)
+                # write out which words in the corpus are multi-tokens in the model
+                if path_to_save_multi_tokens:
+                    with open(path_to_save_multi_tokens, 'w') as outfile:
+                        outfile.write(f'CORPUS_TOKEN\tMODEL_TOKEN\n')
+                        for model_token, corpus_token in zip(model_tokens, corpus_tokens):
+                            outfile.write(f'{corpus_token}\t{model_token}\n')
+
+        if 'sent_length' in variables:
+            words_df = (words_df.groupby(['text_id', 'sent_id'])
+                  .apply(lambda group: assign_sentence_length(group)).reset_index(drop=True))
+
+        if 'sent_mean_frequency' in variables and 'frequency' in words_df.columns:
+            words_df = (words_df.groupby(['text_id', 'sent_id'])
+                  .apply(lambda group: assign_sentence_frequency(group)).reset_index(drop=True))
+
+        if 'word_pos' in variables:
+            words_df = (words_df.groupby(['text_id', 'sent_id'])
+                  .apply(lambda group: assign_word_position_in_sentence(group)).reset_index(drop=True))
+
+        if 'norm_ianum' in variables:
+            words_df = (words_df.groupby(['text_id'])
+                  .apply(lambda group: norm_word_pos_in_text(group)).reset_index(drop=True))
+
+        if 'norm_sent_id' in variables:
+            words_df['norm_sent_id'] = words_df.groupby(['text_id'])['sent_id'].transform(lambda x:normalize(x))
+
+    elif corpus_name == 'onestop':
+
+        if 'sent_info' in variables:
+            words_df = (words_df.groupby(['article_title', 'difficulty_level', 'paragraph_id'])
+                        .apply(lambda group: assign_sentence(group)).reset_index(drop=True))
+
+        if 'word_pos' in variables and 'sent_id' in words_df.columns:
+            words_df = (words_df.groupby(['article_title','difficulty_level','paragraph_id','sent_id'])
+                  .apply(lambda group: assign_word_position_in_sentence(group)).reset_index(drop=True))
+
+        if 'norm_ianum' in variables:
+            words_df = (words_df.groupby(['article_title', 'difficulty_level', 'paragraph_id'])
+                  .apply(lambda group: norm_word_pos_in_text(group)).reset_index(drop=True))
+
+        if 'text_id' in variables:
+            words_df['text_id'] = [f'{article_batch}-{article_id}-{difficulty_level}-{paragraph_id}'
+                             for article_batch, article_id, difficulty_level, paragraph_id in
+                             zip(words_df['article_batch'].tolist(), words_df['article_id'].tolist(),
+                                 words_df['difficulty_level'].tolist(), words_df['paragraph_id'].tolist())]
+
+        if 'article_text_id' in variables:
+            words_df['article_text_id'] = [f'{article_batch}-{article_id}-{difficulty_level}'
+                             for article_batch, article_id, difficulty_level in
+                             zip(words_df['article_batch'].tolist(), words_df['article_id'].tolist(),
+                                 words_df['difficulty_level'].tolist())]
+
+    else:
+        raise NotImplementedError("`corpus_name` must be either `provo`, `meco` or `onestop`.")
+
+    return words_df
+
+def add_variables_to_eye_data(variables:list[str],
                   df:pd.DataFrame,
                   corpus_name:str,
-                  words_filepath:str='',
+                  words_df:pd.DataFrame=None,
                   frequency_filepath:str='')->pd.DataFrame:
 
     """
@@ -777,7 +832,7 @@ def add_variables(variables:list[str],
     :param variables: list of possible variables (length, frequency, pos-tag).
     :param df: dataframe with eye-tracking data
     :param corpus_name: name of eye-tracking corpus
-    :param words_filepath: path to words file
+    :param words_df: dataframe with words data
     :param frequency_filepath: path to frequency resource
 
     Returns: dataframe with eye-tracking data and variables added as columns.
@@ -793,37 +848,37 @@ def add_variables(variables:list[str],
         if 'frequency' in variables and frequency_filepath:
             df['frequency'] = add_word_frequency(df, corpus_name, frequency_filepath)
 
-        if 'surprisal' in variables and words_filepath:
-            surprisal_df = add_word_surprisal(words_filepath)
-            df = pd.merge(df, surprisal_df[['text_id', 'ianum', 'surprisal']], how='left', on=['text_id', 'ianum'])
+        if 'surprisal' in variables and 'surprisal' in words_df.columns:
+            df = pd.merge(df, words_df[['text_id', 'ianum', 'surprisal']], how='left', on=['text_id', 'ianum'])
 
         if 'sent_length' in variables:
-            df = (df.groupby(['participant_id', 'text_id', 'sentnum'])
+            df = (df.groupby(['participant_id', 'text_id', 'sent_id'])
                   .apply(lambda group: assign_sentence_length(group)).reset_index(drop=True))
 
         if 'sent_mean_frequency' in variables and 'frequency' in df.columns:
-            df = (df.groupby(['participant_id', 'text_id', 'sentnum'])
+            df = (df.groupby(['participant_id', 'text_id', 'sent_id'])
                   .apply(lambda group: assign_sentence_frequency(group)).reset_index(drop=True))
 
         if 'word_pos' in variables:
-            df = (df.groupby(['participant_id', 'text_id', 'sentnum'])
+            df = (df.groupby(['participant_id', 'text_id', 'sent_id'])
                   .apply(lambda group: assign_word_position_in_sentence(group)).reset_index(drop=True))
 
         if 'norm_ianum' in variables:
             df = (df.groupby(['participant_id', 'text_id'])
                   .apply(lambda group: norm_word_pos_in_text(group)).reset_index(drop=True))
 
-        if 'norm_sentnum' in variables:
-            df['norm_sentnum'] = df.groupby(['participant_id', 'text_id'])['sentnum'].transform(lambda x:normalize(x))
+        if 'norm_sent_id' in variables:
+            df['norm_sent_id'] = df.groupby(['participant_id', 'text_id'])['sent_id'].transform(lambda x:normalize(x))
 
     elif corpus_name == 'onestop':
 
-        if 'sent_info' in variables and words_filepath:
-            words_df = pd.read_csv(words_filepath)
-            words_df = (words_df.groupby(['article_title','difficulty_level','paragraph_id'])
-                  .apply(lambda group: assign_sentence(group)).reset_index(drop=True))
-            words_df.to_csv(words_filepath, index=False)
-            df = pd.merge(df, words_df[['article_title', 'difficulty_level', 'paragraph_id', 'ianum', 'sent_id', 'sent_length']], how='left', on=['article_title', 'difficulty_level', 'paragraph_id', 'ianum'])
+        if 'sent_info' in variables and words_df:
+            if 'sent_id' not in words_df.columns and 'sent_length' not in words_df.columns:
+                words_df = (words_df.groupby(['article_title', 'difficulty_level', 'paragraph_id'])
+                            .apply(lambda group: assign_sentence(group)).reset_index(drop=True))
+            df = pd.merge(df, words_df[
+                ['article_title', 'difficulty_level', 'paragraph_id', 'ianum', 'sent_id', 'sent_length']],
+                          how='left', on=['article_title', 'difficulty_level', 'paragraph_id', 'ianum'])
 
         if 'word_pos' in variables and 'sent_id' in df.columns:
             df = (df.groupby(['participant_id','article_title','difficulty_level', 'paragraph_id','sent_id'])
@@ -833,11 +888,22 @@ def add_variables(variables:list[str],
             df = (df.groupby(['participant_id', 'article_title', 'difficulty_level', 'paragraph_id'])
                   .apply(lambda group: norm_word_pos_in_text(group)).reset_index(drop=True))
 
-        if 'article_ianum' in variables and words_filepath:
-            words_df = pd.read_csv(words_filepath)
+        if 'article_ianum' in variables and words_df:
             if 'article_ianum' in words_df.columns:
                 df = df.merge(words_df[['article_batch', 'article_id', 'difficulty_level', 'paragraph_id', 'ianum', 'article_ianum']],
                               how='left', on=['article_batch', 'article_id', 'difficulty_level', 'paragraph_id', 'ianum'])
+
+        if 'text_id' in variables:
+            df['text_id'] = [f'{article_batch}-{article_id}-{difficulty_level}-{paragraph_id}'
+                                   for article_batch, article_id, difficulty_level, paragraph_id in
+                                   zip(df['article_batch'].tolist(), df['article_id'].tolist(),
+                                       df['difficulty_level'].tolist(), df['paragraph_id'].tolist())]
+
+        if 'article_text_id' in variables:
+            df['article_text_id'] = [f'{article_batch}-{article_id}-{difficulty_level}'
+                             for article_batch, article_id, difficulty_level in
+                             zip(df['article_batch'].tolist(), df['article_id'].tolist(),
+                                 df['difficulty_level'].tolist())]
 
     else:
         raise NotImplementedError("`corpus_name` must be either `provo`, `meco` or `onestop`.")
@@ -852,27 +918,42 @@ def main():
     """
 
     # corpus name
-    corpus_name = 'onestop'  # 'meco'  # 'provo' # 'onestop'
+    corpus_name = 'provo'  # 'meco'  # 'provo' # 'onestop'
     # file with eye-tracking data
     raw_eye_move_filepath = '../data/raw/ia_Paragraph_ordinary.csv' # '../data/raw/ia_Paragraph_ordinary.csv' # '../data/raw/joint_data_trimmed.csv'  # '../data/raw/Provo_Corpus-Eyetracking_Data.csv'
     # file with word frequency resource if freq not in eye mov data
-    frequency_filepath = '' # '../data/raw/wordlist_meco.csv'  # '../data/raw/SUBTLEX_UK.txt'
+    frequency_filepath = '../data/raw/SUBTLEX_UK.txt' # '../data/raw/wordlist_meco.csv'  # '../data/raw/SUBTLEX_UK.txt'
     # filepath to save out pre-processed eye-tracking data
     processed_eye_move_filepath = f'../data/processed/{corpus_name}_eye_mov.csv'
-    processed_words_filepath = f'../data/processed/{corpus_name}_words.csv'
+    processed_words_filepath = f'../data/output/gpt-4o-mini/{corpus_name}/{corpus_name}_words_plus_triplets_gpt-4o-mini.csv' # # f'../data/processed/{corpus_name}_words.csv'
 
-    # TODO change seperator MECO words.csv
     # print('Processing corpus texts...')
     # texts_df, words_df = extract_texts(corpus_name)
-    # words_df = pd.read_csv(processed_words_filepath)
-    print('Processing data with eye movements...')
+    words_df = pd.read_csv(processed_words_filepath)
+    words_df = add_variables_to_word_data(words_df,
+                                          ['length','frequency','surprisal','sent_length','word_pos','norm_ianum','norm_sent_id'],
+                                          corpus_name,
+                                          frequency_filepath,
+                                          f'../data/processed/{corpus_name}_surprisal.csv')
+                                          # processed_words_filepath.replace('.csv','_surprisal_multi_tokens.csv'))
+    words_df.to_csv(processed_words_filepath.replace('.csv','_all.csv'), index=False)
+
+    # print('Processing data with eye movements...')
     # eye_data = pre_process_eye_data(corpus_name, raw_eye_move_filepath)
     # eye_data.to_csv(processed_eye_move_filepath, index=False)
-    eye_data = pd.read_csv(processed_eye_move_filepath)
+    # eye_data = pd.read_csv(processed_eye_move_filepath)
     # check_alignment(corpus_name, words_df, eye_data)
-    eye_data = add_variables(['sent_info','word_pos','norm_ianum','article_ianum'],
-        eye_data, corpus_name, processed_words_filepath, frequency_filepath)
-    eye_data.to_csv(processed_eye_move_filepath, index=False)
+    # eye_data = add_variables_to_eye_data(['sent_info','word_pos','norm_ianum','article_ianum'],
+    #     eye_data, corpus_name, processed_words_filepath, frequency_filepath)
+    # eye_data.to_csv(processed_eye_move_filepath, index=False)
+    # if corpus_name == 'onestop':
+    #     eye_data = pd.read_csv(processed_eye_move_filepath)
+    #     words_df = words_df.merge(eye_data[['text_id','ianum','ia','wordfreq_frequency','gpt2_surprisal','word_length_no_punctuation']],
+    #                               how='left',
+    #                               on=['text_id','ianum','ia'])
+    #     words_df = words_df.drop_duplicates()
+    #     words_df = words_df.rename(columns={'gpt2_surprisal':'surprisal', 'word_length_no_punctuation':'length', 'wordfreq_frequency':'frequency'})
+    #     words_df.to_csv(processed_words_filepath.replace('.csv','_all.csv'), index=False)
 
 if __name__ == '__main__':
     main()
