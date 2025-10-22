@@ -23,9 +23,6 @@ client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 # Load texts from file and a prompt for each text
 data = pd.read_csv(INPUT_FILEPATH)
 
-# Store responses
-responses = []
-
 # Define the task instruction for the model
 prompt_intro = (
 f"""
@@ -76,7 +73,10 @@ class TextResponse(BaseModel):
 
 # words_df = pd.read_csv(f'../data/processed/{CORPUS}_words.csv')
 
-for run in range(2,N_RUNS+1): # TODO change back to (1, N_RUNS+1) later
+for run in range(1, N_RUNS+1):
+
+    # store responses
+    responses = []
 
     # Iterate over texts and generate responses
 
@@ -96,7 +96,7 @@ for run in range(2,N_RUNS+1): # TODO change back to (1, N_RUNS+1) later
 
         if i >= counter:
 
-            print(f"\nProcessing text {counter+1}/{len(data)}...")
+            print(f"\nProcessing text {i+1}/{len(data)}...")
 
             if CORPUS == 'onestop':
 
@@ -165,7 +165,7 @@ for run in range(2,N_RUNS+1): # TODO change back to (1, N_RUNS+1) later
 
             print(f"Input tokens used: {input_tokens_count}, Output tokens used: {output_tokens_count}")
 
-            # Save intermediate results
+            # Save intermediate results (first text up to the current text)
             with open(OUTPUT_FILEPATH_run, "w", encoding='utf-8') as f:
                 json.dump(responses, f, ensure_ascii=False, indent=2)
             counter += 1

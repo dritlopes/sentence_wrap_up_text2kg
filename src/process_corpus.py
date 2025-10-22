@@ -918,25 +918,29 @@ def main():
     """
 
     # corpus name
-    corpus_name = 'provo'  # 'meco'  # 'provo' # 'onestop'
+    corpus_name = 'meco'  # 'meco'  # 'provo' # 'onestop'
     # file with eye-tracking data
-    raw_eye_move_filepath = '../data/raw/ia_Paragraph_ordinary.csv' # '../data/raw/ia_Paragraph_ordinary.csv' # '../data/raw/joint_data_trimmed.csv'  # '../data/raw/Provo_Corpus-Eyetracking_Data.csv'
+    raw_eye_move_filepath = '' # '../data/raw/ia_Paragraph_ordinary.csv' # '../data/raw/joint_data_trimmed.csv'  # '../data/raw/Provo_Corpus-Eyetracking_Data.csv'
     # file with word frequency resource if freq not in eye mov data
-    frequency_filepath = '../data/raw/SUBTLEX_UK.txt' # '../data/raw/wordlist_meco.csv'  # '../data/raw/SUBTLEX_UK.txt'
+    frequency_filepath = '../data/raw/wordlist_meco.csv' # '../data/raw/wordlist_meco.csv'  # '../data/raw/SUBTLEX_UK.txt'
+    surprisal_filepath = f'../data/processed/{corpus_name}_surprisal.csv'
     # filepath to save out pre-processed eye-tracking data
     processed_eye_move_filepath = f'../data/processed/{corpus_name}_eye_mov.csv'
-    processed_words_filepath = f'../data/output/gpt-4o-mini/{corpus_name}/{corpus_name}_words_plus_triplets_gpt-4o-mini.csv' # # f'../data/processed/{corpus_name}_words.csv'
+    processed_words_filepath = f'../data/processed/{corpus_name}_words.csv'
+
+    # surprisal_df = pd.read_csv(surprisal_filepath, sep='\t')
+    # surprisal_df.to_csv(surprisal_filepath, sep=',', index=False)
 
     # print('Processing corpus texts...')
     # texts_df, words_df = extract_texts(corpus_name)
     words_df = pd.read_csv(processed_words_filepath)
     words_df = add_variables_to_word_data(words_df,
-                                          ['length','frequency','surprisal','sent_length','word_pos','norm_ianum','norm_sent_id'],
+                                          [''], # ['length','frequency','surprisal','sent_length','word_pos','norm_ianum','norm_sent_id'],
                                           corpus_name,
                                           frequency_filepath,
-                                          f'../data/processed/{corpus_name}_surprisal.csv')
+                                          surprisal_filepath)
                                           # processed_words_filepath.replace('.csv','_surprisal_multi_tokens.csv'))
-    words_df.to_csv(processed_words_filepath.replace('.csv','_all.csv'), index=False)
+    words_df.to_csv(processed_words_filepath, index=False) #.replace('.csv','_all.csv')
 
     # print('Processing data with eye movements...')
     # eye_data = pre_process_eye_data(corpus_name, raw_eye_move_filepath)
