@@ -185,7 +185,7 @@ def add_triplets_to_words_df(triplet_map:dict, words_df:pd.DataFrame, corpus:str
         raise ValueError(f'Triplet mapping is empty.')
 
 
-CORPUS = 'onestop'
+CORPUS = 'provo'
 MODEL = 'gpt-4o-mini'
 N_RUNS = 10
 
@@ -226,12 +226,11 @@ for run in range(1, N_RUNS+1):
             # read in triplets data
             with open(f'../data/output/{MODEL}/{CORPUS}/{MODEL}_triplets_{CORPUS}_{run}.json', 'r', encoding='utf-8') as f:
                 triplets = json.load(f)
-                print(len(triplets))
 
             # align triplets to words in word data
             triplet_map = compile_output_gpt(triplets, words_df, CORPUS)
             words_with_triplets_df = add_triplets_to_words_df(triplet_map, words_df, CORPUS)
-            words_with_triplets_df.to_csv(output_word_run_filepath, index=False)
+            # words_with_triplets_df.to_csv(output_word_run_filepath, index=False)
             # words_with_triplets_df = pd.read_csv(output_run_filepath)
             words_with_triplets_df['run_id'] = [run for i in range(len(words_with_triplets_df))]
             word_datasets.append(words_with_triplets_df)

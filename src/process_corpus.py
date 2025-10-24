@@ -928,9 +928,6 @@ def main():
     processed_eye_move_filepath = f'../data/processed/{corpus_name}_eye_mov.csv'
     processed_words_filepath = f'../data/processed/{corpus_name}_words.csv'
 
-    # surprisal_df = pd.read_csv(surprisal_filepath, sep='\t')
-    # surprisal_df.to_csv(surprisal_filepath, sep=',', index=False)
-
     # print('Processing corpus texts...')
     # texts_df, words_df = extract_texts(corpus_name)
     words_df = pd.read_csv(processed_words_filepath)
