@@ -1,3 +1,4 @@
+from aiohttp.log import client_logger
 from openai import OpenAI
 import json
 import pandas as pd
@@ -11,11 +12,12 @@ import time
 load_dotenv()
 
 # Define constants
-CORPUS = 'onestop' # options: 'onestop', 'meco', 'provo'
+CORPUS = 'meco' # options: 'onestop', 'meco', 'provo'
 MODEL = "gpt-4o-mini"
-INPUT_FILEPATH = f"../data/processed/{CORPUS}_texts.csv"
+INPUT_FILEPATH = f"../data/processed/{CORPUS}.csv"
 OUTPUT_FILEPATH = f"../data/output/{MODEL}/{CORPUS}/{MODEL}_triplets_{CORPUS}.json"
-N_RUNS = 10
+N_RUNS = 1
+LEVEL = ''  # options: 'article', 'paragraph' (only for onestop)
 
 # Initialize OpenAI client
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
@@ -26,7 +28,8 @@ data = pd.read_csv(INPUT_FILEPATH)
 # Define the task instruction for the model
 prompt_intro = (
 f"""
-Task: extract all triplets from each of the texts below, based on the information given in the text. A triplet is a structured representation of the form (Entity 1, Relation, Entity 2) that captures the relationship between two entities.
+Task: extract all triplets from the text below, based on the information given in the text. 
+A triplet is a structured representation of the form (Entity 1, Relation, Entity 2) that captures the relationship between two entities.
 For each triplet, provide the following information:
 - Entity: an object, event, person, location, or concept that is mentioned in the text.
 - Relation: a semantic association between two entities.
@@ -38,7 +41,7 @@ For each entity or relation, provide the following information:
 # - Span_char_indices: the start and end character indices (inclusive) of the mention in the original input text, where the first character is index 0.
 # - Span_word_indices: the start and end word indices (inclusive) of the mention in the original input text, where words are defined as sequences of characters separated by whitespace, and the first word is index 0. Use the exact input text provided below for calculating indices.
 
-# Define response schema using Pydantic models
+# Define response schema
 class TripletItem(BaseModel):
     label: str
     mention: str
@@ -100,17 +103,28 @@ for run in range(1, N_RUNS+1):
 
             if CORPUS == 'onestop':
 
-                metadata = {"article_batch": row.article_batch,
-                             "article_id": row.article_id,
-                             "article_title": row.article_title,
-                             "difficulty_level": row.difficulty_level,
-                             "paragraph_id": row.paragraph_id,
-                             "paragraph": row.paragraph}
+                if LEVEL == 'article':
+                    metadata = {"article_batch": row.article_batch,
+                                "article_id": row.article_id,
+                                "article_title": row.article_title,
+                                "difficulty_level": row.difficulty_level}
 
-                # split sentences in . or ." or ? or ! or ?"
-                sentences = re.split(r'\.\s|\."\s|\.”\s|\?\s|!\s|\?”\s', row.paragraph)
-                sentences = [sentence for sentence in sentences if sentence != '']
-                # words = [word for word in row.paragraph.split(' ')]
+                    # split sentences in . or ." or ? or ! or ?"
+                    sentences = re.split(r'\.\s|\."\s|\.”\s|\?\s|!\s|\?”\s', row.article)
+                    sentences = [sentence for sentence in sentences if sentence != '']
+
+                else:
+                    metadata = {"article_batch": row.article_batch,
+                                 "article_id": row.article_id,
+                                 "article_title": row.article_title,
+                                 "difficulty_level": row.difficulty_level,
+                                 "paragraph_id": row.paragraph_id,
+                                 "paragraph": row.paragraph}
+
+                    # split sentences in . or ." or ? or ! or ?"
+                    sentences = re.split(r'\.\s|\."\s|\.”\s|\?\s|!\s|\?”\s', row.paragraph)
+                    sentences = [sentence for sentence in sentences if sentence != '']
+                    # words = [word for word in row.paragraph.split(' ')]
 
             elif CORPUS in ['meco','provo']:
 
@@ -140,17 +154,23 @@ for run in range(1, N_RUNS+1):
             output_tokens_count = 0
 
             for sentence_pos, sentence in enumerate(sentences):
+                # sliding window of two sentences when level is article
+                # if LEVEL == 'article':
+                #         if sentence_pos < len(sentences) - 1:
+                #             context = '. '.join(sentences[sentence_pos:sentence_pos+2])
+                #         else:
+                #             continue
+                # else:
                 context = '. '.join(sentences[:sentence_pos+1])
-            # for word_pos, word in enumerate(words):
-            #     context = ' '.join(words[:word_pos+1])
                 prompt = prompt_intro + f"\nText: {context}\n"
                 # print(f"{prompt}")
                 # print("\nSending request to OpenAI...")
+
                 response = client.responses.parse(model=MODEL,
                                                    instructions=f'You are a helpful assistant that extracts relationships between entities from text.',
                                                    input=prompt,
                                                    text_format=TextResponse,
-                                                   temperature=0) # make output ~deterministic
+                                                   temperature=0)
 
                 # Extract the assistant's reply
                 # print("\nResponse: \n", response)

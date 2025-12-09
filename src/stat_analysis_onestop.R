@@ -5,266 +5,223 @@ library(dplyr)
 library(lmerTest)
 library(mgcv)
 library(glue)
+library(broom.mixed)
 
 # clear existing workspace objects 
 rm(list = ls())
 # set working directory to where the data file is located & results should be saved
-setwd(glue("/Users/adriellilopes/PycharmProjects/Text2KG/data/output"))
+setwd(glue("/Users/adriellilopes/PycharmProjects/Text2KG/data/"))
+
+model <- 'gpt-4o-mini'
+corpus <- 'onestop'
+level <- 'article' # paragraph
 
 # read in data
-data <- read.csv("onestop_eye_mov_plus_triplets_gpt-4o-mini.csv") # eye_data_plus_triplets_onestop.csv
-# data <- data[data$difficulty_level == 'Adv',]
-# data <- data[data$n_triplets <= 5,]
+data <- read.csv(glue("output/{model}/{corpus}/{corpus}_articles_eye_mov_plus_triplets_{model}.csv"))
 
-# standardize predictors with z-score
-data$norm_word_pos <- scale(data$norm_word_pos, center = TRUE, scale = TRUE)
-data$abs_word_pos <- scale(data$abs_word_pos, center = TRUE, scale = TRUE)
-data$sent_length <- scale(data$sent_length, center = TRUE, scale = TRUE)
-data$length <- scale(data$word_length_no_punctuation, center = TRUE, scale = TRUE)
-data$frequency <- scale(data$wordfreq_frequency, center = TRUE, scale = TRUE)
-data$surprisal <- scale(data$gpt2_surprisal, center = TRUE, scale = TRUE)
-data$ianum <- scale(data$ianum, center = TRUE, scale = TRUE)
-data$sentnum <- scale(data$sent_id, center = TRUE, scale = TRUE)
-data$n_triplets <- scale(data$n_triplets, center = TRUE, scale = TRUE)
-data$norm_ianum <- scale(data$norm_ianum, center = TRUE, scale = TRUE)
+for (run in 1:10) {
 
-data$n_triplets_added <- scale(data$n_triplets_added, center = TRUE, scale = TRUE)
-data$n_triplets_new <- scale(data$n_triplets_new, center = TRUE, scale = TRUE)
-data$n_triplets_activated <- scale(data$n_triplets_activated, center = TRUE, scale = TRUE)
-data$n_new_triplets_activated <- scale(data$n_new_triplets_activated, center = TRUE, scale = TRUE)
+  # run_data <- data[data$difficulty_level == 'Adv',]
+  run_data <- data %>% filter(`run_id` == run)
 
-data$n_triplets_minus_one <- scale(data$n_triplets_minus_one, center = TRUE, scale = TRUE)
-data$n_triplets_plus_one <- scale(data$n_triplets_plus_one, center = TRUE, scale = TRUE)
+  # add triplets n-1 and n+1 variables
+  run_data <- run_data %>% group_by(participant_id, text_id) %>% mutate(triplets_added_minus_one = if_else(lag(`n_triplets`, 1) > lag(`n_triplets`, 2), 1, 0)) %>%  ungroup()
+  run_data <- run_data %>%  group_by(participant_id, text_id) %>% mutate(triplets_added = if_else(`n_triplets` > lag(`n_triplets`, 1), 1, 0)) %>%  ungroup()
+  run_data <- run_data %>% group_by(participant_id, text_id) %>% mutate(triplets_added_plus_one = if_else(lead(`n_triplets`, 1) > `n_triplets`, 1, 0)) %>%  ungroup()
+  run_data <- run_data %>% group_by(participant_id, text_id) %>% mutate(surprisal_minus_one = lag(`gpt2_surprisal`, 1)) %>%  ungroup()
+  run_data <- run_data %>% group_by(participant_id, text_id) %>% mutate(surprisal_plus_one = lead(`gpt2_surprisal`, 1)) %>%  ungroup()
+  run_data <- run_data %>% group_by(participant_id, text_id) %>% mutate(frequency_minus_one = lag(`wordfreq_frequency`, 1)) %>%  ungroup()
+  run_data <- run_data %>% group_by(participant_id, text_id) %>% mutate(frequency_plus_one = lead(`wordfreq_frequency`, 1)) %>%  ungroup()
+  run_data <- run_data %>% group_by(participant_id, text_id) %>% mutate(length_minus_one = lag(`word_length_no_punctuation`, 1)) %>%  ungroup()
+  run_data <- run_data %>% group_by(participant_id, text_id) %>% mutate(length_plus_one = lead(`word_length_no_punctuation`, 1)) %>%  ungroup()
 
-# convert . into 0 in response columns
-data$first_fix_dur[data$first_fix_dur == "."] <- 0
-data$first_fix_dur <- as.numeric(data$first_fix_dur)
-class(data$first_fix_dur)
-data$gaze_dur[data$gaze_dur == "."] <- 0
-data$gaze_dur <- as.numeric(data$gaze_dur)
-class(data$gaze_dur)
+  # standardize predictors with z-score
+  run_data$norm_word_pos <- scale(run_data$norm_word_pos, center = TRUE, scale = TRUE)
+  run_data$abs_word_pos <- scale(run_data$abs_word_pos, center = TRUE, scale = TRUE)
+  run_data$sent_length <- scale(run_data$sent_length, center = TRUE, scale = TRUE)
+  run_data$length <- scale(run_data$word_length_no_punctuation, center = TRUE, scale = TRUE)
+  run_data$frequency <- scale(run_data$wordfreq_frequency, center = TRUE, scale = TRUE)
+  run_data$surprisal <- scale(run_data$gpt2_surprisal, center = TRUE, scale = TRUE)
+  run_data$ianum <- scale(run_data$ianum, center = TRUE, scale = TRUE)
+  run_data$sentnum <- scale(run_data$sent_id, center = TRUE, scale = TRUE)
+  run_data$n_triplets <- scale(run_data$n_triplets, center = TRUE, scale = TRUE)
+  run_data$norm_ianum <- scale(run_data$norm_ianum, center = TRUE, scale = TRUE)
+  run_data$triplets_added <- scale(run_data$triplets_added, center = TRUE, scale = TRUE)
+  run_data$triplets_added_minus_one <- scale(run_data$triplets_added_minus_one, center = TRUE, scale = TRUE)
+  run_data$triplets_added_plus_one <- scale(run_data$triplets_added_plus_one, center = TRUE, scale = TRUE)
+  run_data$surprisal_minus_one <- scale(run_data$surprisal_minus_one, center = TRUE, scale = TRUE)
+  run_data$surprisal_plus_one <- scale(run_data$surprisal_plus_one, center = TRUE, scale = TRUE)
+  run_data$frequency_minus_one <- scale(run_data$frequency_minus_one, center = TRUE, scale = TRUE)
+  run_data$frequency_plus_one <- scale(run_data$frequency_plus_one, center = TRUE, scale = TRUE)
+  run_data$length_minus_one <- scale(run_data$length_minus_one, center = TRUE, scale = TRUE)
+  run_data$length_plus_one <- scale(run_data$length_plus_one, center = TRUE, scale = TRUE)
+  
+  # data$n_triplets_added <- scale(data$n_triplets_added, center = TRUE, scale = TRUE)
+  # data$n_triplets_new <- scale(data$n_triplets_new, center = TRUE, scale = TRUE)
+  # data$n_triplets_activated <- scale(data$n_triplets_activated, center = TRUE, scale = TRUE)
+  # data$n_new_triplets_activated <- scale(data$n_new_triplets_activated, center = TRUE, scale = TRUE)
 
-# 1. Number of triplets
+  # convert . into NA in response columns
+  run_data$first_fix_dur[run_data$first_fix_dur == "."] <- NA
+  run_data$first_fix_dur <- as.numeric(run_data$first_fix_dur)
+  run_data$gaze_dur[run_data$gaze_dur == "."] <- NA
+  run_data$gaze_dur <- as.numeric(run_data$gaze_dur)
+  run_data$total_dur[run_data$total_dur == "."] <- NA
+  run_data$total_dur <- as.numeric(run_data$total_dur)
+  
+  # 1. Number of triplets
+  
+  # 1.1. First Fix Duration
+  
+  # baseline
+  firstFixBase <- lmer(first_fix_dur ~ length + frequency + surprisal + norm_ianum + norm_word_pos + (1|article_text_id) + (1|participant_id) + (1|text_id), data = run_data)
+  # summary(firstFixBase)
+  # Removed abs_word_pos because of perfect co-linearity with norm_word_pos leading to error.
+  
+  # main model
+  firstFix <- lmer(first_fix_dur ~ length + frequency + surprisal + norm_ianum + norm_word_pos + n_triplets + (1|article_text_id) + (1|participant_id)+ (1|text_id), data = run_data)
+  # summary(firstFix)
+  
+  # save out results
+  tidy_model <- tidy(firstFix)
+  write.csv(tidy_model, glue("analysis/{model}/{corpus}/lmer_firstFix_{run}_{level}.csv"), row.names = FALSE)
+  
+  # compare models
+  anova_result <- anova(firstFixBase, firstFix)
+  write.csv(anova_result, glue("analysis/{model}/{corpus}/anova_firstFix_{run}_{level}.csv"), row.names = TRUE)
+  
+  # interaction
+  firstFixInt <- lmer(first_fix_dur ~ norm_word_pos * n_triplets + norm_ianum * n_triplets + length + frequency + surprisal + (1|article_text_id) + (1|participant_id)+ (1|text_id), data = run_data)
+  nobs(firstFixInt)
+  # summary(firstFixInt)
+  
+  # save model
+  saveRDS(firstFixInt, file = glue("analysis/{model}/{corpus}/lmer_firstFixInt_{run}_{level}.rds"))
+  
+  # save out results
+  tidy_model <- tidy(firstFixInt)
+  write.csv(tidy_model, glue("analysis/{model}/{corpus}/lmer_firstFixInt_{run}_{level}.csv"), row.names = FALSE)
+  
+  # compare models
+  anova_result <- anova(firstFixBase, firstFixInt)
+  write.csv(anova_result, glue("analysis/{model}/{corpus}/anova_firstFixInt_{run}_{level}.csv"), row.names = TRUE)
+  
+  # 1.2. Gaze Duration
+  
+  # Baseline
+  gazeDurBase <- lmer(gaze_dur ~ length + frequency + surprisal + norm_ianum + norm_word_pos + (1|article_text_id) + (1|participant_id)+ (1|text_id), data = run_data)
+  # summary(gazeDurBase)
+  
+  # Main model
+  gazeDur <- lmer(gaze_dur ~ length + frequency + surprisal + norm_ianum + norm_word_pos + n_triplets + (1|article_text_id) + (1|participant_id)+ (1|text_id), data = run_data)
+  # summary(gazeDur)
+  
+  # save out results
+  tidy_model <- tidy(gazeDur)
+  write.csv(tidy_model, glue("analysis/{model}/{corpus}/lmer_gazeDur_{run}_{level}.csv"), row.names = FALSE)
+  
+  # compare models
+  anova_result <- anova(gazeDurBase, gazeDur)
+  write.csv(anova_result, glue("analysis/{model}/{corpus}/anova_gazeDur_{run}_{level}.csv"), row.names = TRUE)
+  
+  # Interaction
+  gazeDurInt <- lmer(gaze_dur ~ norm_word_pos * n_triplets + norm_ianum * n_triplets + length + frequency + surprisal + (1|article_text_id) + (1|participant_id)+ (1|text_id), data = run_data)
+  # summary(gazeDurInt)
+  
+  # save model
+  saveRDS(gazeDurInt, file = glue("analysis/{model}/{corpus}/lmer_gazeDurInt_{run}_{level}.rds"))
+  
+  # save out results
+  tidy_model <- tidy(gazeDurInt)
+  write.csv(tidy_model, glue("analysis/{model}/{corpus}/lmer_gazeDurInt_{run}_{level}.csv"), row.names = FALSE)
+  
+  # compare models
+  anova_result <- anova(gazeDurBase, gazeDurInt)
+  write.csv(anova_result, glue("analysis/{model}/{corpus}/anova_gazeDurInt_{run}_{level}.csv"), row.names = TRUE)
+  
+  # 1.3. Total Reading Time
+  
+  # Baseline
+  totalDurBase <- lmer(total_dur ~ length + frequency + surprisal + norm_ianum + norm_word_pos + (1|article_text_id) + (1|participant_id)+ (1|text_id), data = run_data)
+  # summary(totalDurBase)
+  
+  # Main model
+  totalDur <- lmer(total_dur ~ length + frequency + surprisal + norm_ianum + norm_word_pos + n_triplets + (1|article_text_id) + (1|participant_id)+ (1|text_id), data = run_data)
+  # summary(totalDur)
+  
+  # save out results
+  tidy_model <- tidy(totalDur)
+  write.csv(tidy_model, glue("analysis/{model}/{corpus}/lmer_totalDur_{run}_{level}.csv"), row.names = FALSE)
+  
+  # compare models
+  anova_result <- anova(totalDurBase, totalDur)
+  write.csv(anova_result, glue("analysis/{model}/{corpus}/anova_totalDur_{run}_{level}.csv"), row.names = TRUE)
+  
+  # Interaction
+  totalDurInt <- lmer(total_dur ~ norm_word_pos * n_triplets + norm_ianum * n_triplets + length + frequency + surprisal + (1|article_text_id) + (1|participant_id)+ (1|text_id), data = run_data)
+  # summary(totalDurInt)
+  
+  # save model
+  saveRDS(totalDurInt, file = glue("analysis/{model}/{corpus}/lmer_totalDurInt_{run}_{level}.rds"))
+  
+  # save out results
+  tidy_model <- tidy(totalDurInt)
+  write.csv(tidy_model, glue("analysis/{model}/{corpus}/lmer_totalDurInt_{run}_{level}.csv"), row.names = FALSE)
+   
+  # compare models
+  anova_result <- anova(totalDurBase, totalDurInt)
+  write.csv(anova_result, glue("analysis/{model}/{corpus}/anova_totalDurInt_{run}_{level}.csv"), row.names = TRUE)
+  
+  # # make sure both models have the same rows for anova to work
+  # common_rows <- complete.cases(data[, c("triplets_added", "length", "frequency", "surprisal", "norm_ianum", "norm_word_pos")])
+  # data <- data[common_rows, ]
+  
+  # N-1
+  firstFixMinusOne <- lmer(first_fix_dur ~ length + frequency + surprisal + norm_word_pos + norm_ianum + n_triplets + triplets_added + triplets_added_minus_one + surprisal_minus_one + frequency_minus_one + length_minus_one + (1|participant_id) + (1|article_text_id)+ (1|text_id), data = run_data)
+  saveRDS(firstFixMinusOne, file = glue("analysis/{model}/{corpus}/lmer_firstFix_MinusOne_{run}_{level}.rds"))
+  tidy_model <- tidy(firstFixMinusOne)
+  write.csv(tidy_model, glue("analysis/{model}/{corpus}/lmer_firstFix_MinusOne_{run}_{level}.csv"), row.names = FALSE)
+  # anova_result <- anova(firstFix, firstFixMinusOne)
+  # write.csv(anova_result, glue("analysis/{model}/{corpus}/anova_firstFix_MinusOne_{run}_{level}.csv"), row.names = TRUE)
+  
+  gazeDurMinusOne <- lmer(gaze_dur ~ length + frequency + surprisal + norm_word_pos + norm_ianum + n_triplets + triplets_added + triplets_added_minus_one + surprisal_minus_one + frequency_minus_one + length_minus_one + (1|participant_id) + (1|article_text_id)+ (1|text_id), data = run_data)
+  saveRDS(gazeDurMinusOne, file = glue("analysis/{model}/{corpus}/lmer_gazeDur_MinusOne_{run}_{level}.rds"))
+  tidy_model <- tidy(gazeDurMinusOne)
+  write.csv(tidy_model, glue("analysis/{model}/{corpus}/lmer_gazeDur_MinusOne_{run}_{level}.csv"), row.names = FALSE)
+  # anova_result <- anova(gazeDur, gazeDurMinusOne)
+  # write.csv(anova_result, glue("analysis/{model}/{corpus}/anova_gazeDur_MinusOne_{run}_{level}.csv"), row.names = TRUE)
+  
+  totalDurMinusOne <- lmer(total_dur ~ length + frequency + surprisal + norm_word_pos + norm_ianum + n_triplets + triplets_added + triplets_added_minus_one + surprisal_minus_one + frequency_minus_one + length_minus_one + (1|participant_id) + (1|article_text_id)+ (1|text_id), data = run_data)
+  saveRDS(totalDurMinusOne, file = glue("analysis/{model}/{corpus}/lmer_totalDur_MinusOne_{run}_{level}.rds"))
+  tidy_model <- tidy(totalDurMinusOne)
+  write.csv(tidy_model, glue("analysis/{model}/{corpus}/lmer_totalDur_MinusOne_{run}_{level}.csv"), row.names = FALSE)
+  # anova_result <- anova(totalDur, totalDurMinusOne)
+  # write.csv(anova_result, glue("analysis/{model}/{corpus}/anova_totalDur_MinusOne_{run}_{level}.csv"), row.names = TRUE)
+  
+  # N+1
+  firstFixPlusOne <- lmer(first_fix_dur ~ length + frequency + surprisal + norm_word_pos + norm_ianum + n_triplets + triplets_added + triplets_added_plus_one + surprisal_plus_one + frequency_plus_one + length_plus_one + (1|participant_id) + (1|article_text_id)+ (1|text_id), data = run_data)
+  saveRDS(firstFixPlusOne, file = glue("analysis/{model}/{corpus}/lmer_firstFix_PlusOne_{run}_{level}.rds"))
+  tidy_model <- tidy(firstFixPlusOne)
+  write.csv(tidy_model, glue("analysis/{model}/{corpus}/lmer_firstFix_PlusOne_{run}_{level}.csv"), row.names = FALSE)
+  # anova_result <- anova(firstFix, firstFixPlusOne)
+  # write.csv(anova_result, glue("analysis/{model}/{corpus}/anova_firstFix_PlusOne_{run}_{level}.csv"), row.names = TRUE)
+  
+  gazeDurPlusOne <- lmer(gaze_dur ~ length + frequency + surprisal + norm_word_pos + norm_ianum + n_triplets + triplets_added + triplets_added_plus_one + surprisal_plus_one + frequency_plus_one + length_plus_one + (1|participant_id) + (1|article_text_id)+ (1|text_id), data = run_data)
+  saveRDS(gazeDurPlusOne, file = glue("analysis/{model}/{corpus}/lmer_gazeDur_PlusOne_{run}_{level}.rds"))
+  tidy_model <- tidy(gazeDurPlusOne)
+  write.csv(tidy_model, glue("analysis/{model}/{corpus}/lmer_gazeDur_PlusOne_{run}_{level}.csv"), row.names = FALSE)
+  # anova_result <- anova(gazeDur, gazeDurPlusOne)
+  # write.csv(anova_result, glue("analysis/{model}/{corpus}/anova_gazeDur_PlusOne_{run}_{level}.csv"), row.names = TRUE)
+  
+  totalDurPlusOne <- lmer(total_dur ~ length + frequency + surprisal + norm_word_pos + norm_ianum + n_triplets + triplets_added + triplets_added_plus_one + surprisal_plus_one + frequency_plus_one + length_plus_one + (1|participant_id) + (1|article_text_id)+ (1|text_id), data = run_data)
+  saveRDS(totalDurPlusOne, file = glue("analysis/{model}/{corpus}/lmer_totalDur_PlusOne_{run}_{level}.rds"))
+  tidy_model <- tidy(totalDurPlusOne)
+  write.csv(tidy_model, glue("analysis/{model}/{corpus}/lmer_totalDur_PlusOne_{run}_{level}.csv"), row.names = FALSE)
+  # anova_result <- anova(totalDur, totalDurPlusOne)
+  # write.csv(anova_result, glue("analysis/{model}/{corpus}/anova_totalDur_PlusOne_{run}_{level}.csv"), row.names = TRUE)
+}
 
-# 1.1. First Fix Duration
-
-# baseline
-firstFixBase <- lmer(first_fix_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + length + frequency + surprisal + norm_ianum + (1|article_text_id) + (1|participant_id), data = data)
-summary(firstFixBase)
-# Removed abs_word_pos because of perfect co-linearity with norm_word_pos leading to error.
-
-# main model
-firstFix <- lmer(first_fix_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + length + frequency + surprisal + norm_ianum + n_triplets + (1|article_text_id) + (1|participant_id), data = data)
-summary(firstFix)
-# relik: no effect of n of triplets
-# gpt: pos effect of n of triplets
-
-# n-1 and n+1
-firstFix <- lmer(first_fix_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + length + frequency + surprisal + norm_ianum + n_triplets + n_triplets_minus_one + n_triplets_plus_one + (1|article_text_id) + (1|participant_id), data = data)
-summary(firstFix)
-# gpt: pos effect of n-1 and n+1, but negative effect of n
-
-# interaction
-firstFixInt <- lmer(first_fix_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + norm_word_pos * n_triplets + norm_ianum * n_triplets + length + frequency + surprisal + (1|article_text_id) + (1|participant_id), data = data)
-summary(firstFixInt)
-# relik: positive effect of number of triplets, and negative interaction with norm_ianum
-# gpt: positive effect of number of triplets, and negative interaction with norm_word_pos
-
-
-# compare models
-anova(firstFixBase, firstFixInt)
-
-# 1.2. Gaze Duration
-
-# Baseline
-gazeDurBase <- lmer(gaze_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + length + frequency + surprisal + norm_ianum + (1|article_text_id) + (1|participant_id), data = data)
-summary(gazeDurBase)
-
-# Main model
-gazeDur <- lmer(gaze_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + length + frequency + surprisal + norm_ianum + n_triplets + (1|article_text_id) + (1|participant_id), data = data)
-summary(gazeDur)
-# relik: No effect of n of triplets
-# gpt: pos eff of n of triplets
-
-# n-1 and n+1
-gazeDur <- lmer(gaze_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + length + frequency + surprisal + norm_ianum + n_triplets + n_triplets_minus_one + n_triplets_plus_one + (1|article_text_id) + (1|participant_id), data = data)
-summary(gazeDur)
-# gpt: pos effect of n-1 and n+1, but negative effect of n
-
-# Interaction
-gazeDurInt <- lmer(gaze_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + norm_word_pos * n_triplets + norm_ianum * n_triplets + length + frequency + surprisal + (1|article_text_id) + (1|participant_id), data = data)
-summary(gazeDurInt)
-# relik: Positive effect 
-# gpt: positive effect of n of triplets, neg interaction with norm_word_pos
-
-# compare models
-anova(gazeDurBase, gazeDurInt)
-
-# non-linear effects
-data$participant_id_int <- as.integer(gsub(".*_(\\d+)", "\\1", data$participant_id))
-data <- data %>%mutate(difficulty_level = recode(difficulty_level,"Adv" = 2L,"Ele" = 1L)) 
-gazeDurBaseGam <- gam(gaze_dur ~ s(norm_word_pos) + s(sent_length) + s(length) + s(frequency) + s(surprisal) + s(ianum) + s(sentnum) + s(participant_id_int, bs='re'), data=data, method='REML')
-summary(gazeDurBaseGam)
-plot(gazeDurBaseGam, seWithMean = TRUE, shift = coef(gazeDurBaseGam)[1], shade = TRUE, shade.col = "lightblue", pages=1)
-gazeDurGam <- gam(gaze_dur ~ s(norm_word_pos) + s(sent_length) + s(length) + s(frequency) + s(surprisal) + s(ianum) + s(sentnum) + s(n_triplets) + s(participant_id_int, bs='re'), data=data, method='REML')
-summary(gazeDurGam)
-plot(gazeDurGam, seWithMean = TRUE, shift = coef(gazeDurGam)[1], shade = TRUE, shade.col = "lightblue", pages=1)
-gam.check(gazeDurGam)
-
-# 1.3. Total Reading Time
-
-# Baseline
-totalDurBase <- lmer(total_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + length + frequency + surprisal + norm_ianum + (1|article_text_id) + (1|participant_id), data = data)
-summary(totalDurBase)
-
-# Main model
-totalDur <- lmer(total_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + length + frequency + surprisal + norm_ianum + n_triplets + (1|article_text_id) + (1|participant_id), data = data)
-summary(totalDur)
-# relik:no sig eff
-# gtp: pos effect
-
-# n-1 and n+1
-totalDur <- lmer(total_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + length + frequency + surprisal + norm_ianum + n_triplets + n_triplets_minus_one + n_triplets_plus_one + (1|article_text_id) + (1|participant_id), data = data)
-summary(totalDur)
-# gpt: same thing
-
-# Interaction
-totalDurInt <- lmer(total_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + norm_word_pos * n_triplets + norm_ianum * n_triplets + length + frequency + surprisal + (1|article_text_id) + (1|participant_id), data = data)
-summary(totalDurInt)
-# relik: No sig effect
-# gpt: postiive effect of n triplets, negative effect with norm_word_pos and positive effect on norm_ianum
-
-# compare models
-anova(totalDurBase, totalDurInt)
-
-# non-linear effects
-data$participant_id_int <- as.integer(gsub(".*_(\\d+)", "\\1", data$participant_id))
-df <- df %>%mutate(difficulty_level = recode(difficulty_level,"Adv" = 2L,"Ele" = 1L)) 
-df <- df %>%
-  separate(text_id, into = c("article_batch", "article_id", "difficulty_level"), sep = "-") %>%
-  mutate(across(everything(), as.integer)) %>%
-  mutate(text_id_int = article_batch * 1e6 + article_id * 10 + difficulty_level)
-totalDurBaseGam <- gam(total_dur ~ s(norm_word_pos) + s(sent_length) + s(length) + s(frequency) + s(surprisal) + s(ianum) + s(sentnum) + s(text_id_int, bs='re') + s(participant_id_int, bs='re'), data=data, method='REML')
-summary(totalDurBaseGam)
-plot(totalDurBaseGam, seWithMean = TRUE, shift = coef(totalDurBaseGam)[1], shade = TRUE, shade.col = "lightblue", pages=1)
-totalDurGam <- gam(total_dur ~ s(norm_word_pos) + s(sent_length) + s(length) + s(frequency) + s(surprisal) + s(ianum) + s(sentnum) + s(n_triplets) + s(text_id_int, bs='re') + s(participant_id_int, bs='re'), data=data, method='REML')
-summary(totalDurGam)
-plot(totalDurGam, seWithMean = TRUE, shift = coef(totalDurGam)[1], shade = TRUE, shade.col = "lightblue", pages=1)
-gam.check(totalDurGam)
-
-
-# 2. Number of triplets added 
-
-# 2.1. First Fix Dur
-
-# baseline
-firstFix <- lmer(first_fix_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + length + frequency + surprisal + norm_ianum + (1|text_id) + (1|participant_id), data = data)
-summary(firstFix)
-
-# main model
-firstFixInt <- lmer(first_fix_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + norm_word_pos * n_triplets_added + norm_ianum * n_triplets_added + length + frequency + surprisal + (1|text_id) + (1|participant_id), data = data)
-summary(firstFixInt)
-# no sig effect
-
-# compare models
-anova(firstFix, firstFixInt)
-
-# 2.2. Gaze Duration
-
-# baseline
-gazeDur <- lmer(gaze_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + length + frequency + surprisal + norm_ianum + (1|text_id) + (1|participant_id), data = data)
-summary(gazeDur)
-
-# main model
-gazeDurInt <- lmer(gaze_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + norm_word_pos * n_triplets_added + norm_ianum * n_triplets_added + length + frequency + surprisal + (1|text_id) + (1|participant_id), data = data)
-summary(gazeDurInt)
-# tiny positive effect
-
-# compare models
-anova(gazeDur, gazeDurInt)
-
-# 2.3. Total Reading Time
-
-# baseline
-totalDur <- lmer(total_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + length + frequency + surprisal + norm_ianum + (1|text_id) + (1|participant_id), data = data)
-summary(totalDur)
-
-# main model
-totalDurInt <- lmer(total_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + norm_word_pos * n_triplets_added + norm_ianum * n_triplets_added + length + frequency + surprisal + (1|text_id) + (1|participant_id), data = data)
-summary(totalDurInt)
-# tiny positive effect
-
-# compare models
-anova(totalDur, totalDurInt)
-
-# 3. Number of new triplets added
-
-# 3.1. First Fixation Duration
-
-# baseline
-firstFix <- lmer(first_fix_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + length + frequency + surprisal + norm_ianum + (1|text_id) + (1|participant_id), data = data)
-summary(firstFix)
-
-# main model
-firstFixInt <- lmer(first_fix_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + norm_word_pos * n_triplets_new + norm_ianum * n_triplets_new + length + frequency + surprisal + (1|text_id) + (1|participant_id), data = data)
-summary(firstFixInt)
-
-# 3.2. Gaze Duration
-
-# baseline
-gazeDur <- lmer(gaze_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + length + frequency + surprisal + norm_ianum + (1|text_id) + (1|participant_id), data = data)
-summary(gazeDur)
-
-# main model
-gazeDurInt <- lmer(gaze_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + norm_word_pos * n_triplets_new + norm_ianum * n_triplets_new + length + frequency + surprisal + (1|text_id) + (1|participant_id), data = data)
-summary(gazeDurInt)
-
-# 3.3. Total Reading Time
-
-# baseline
-totalDur <- lmer(total_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + length + frequency + surprisal + norm_ianum + (1|text_id) + (1|participant_id), data = data)
-summary(totalDur)
-
-# main model
-totalDurInt <- lmer(total_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + norm_word_pos * n_triplets_new + norm_ianum * n_triplets_new + length + frequency + surprisal + (1|text_id) + (1|participant_id), data = data)
-summary(totalDurInt)
-
-
-# 4. Number of activated triplets
-# No sig effects
-
-# 4.1. First Fixation Duration
-
-# baseline
-firstFix <- lmer(first_fix_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + length + frequency + surprisal + norm_ianum + (1|text_id) + (1|participant_id), data = data)
-summary(firstFix)
-
-# main model
-firstFixInt <- lmer(first_fix_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + norm_word_pos * n_triplets_activated + norm_ianum * n_triplets_activated + length + frequency + surprisal + (1|text_id) + (1|participant_id), data = data)
-summary(firstFixInt)
-
-# 4.2. Gaze Duration
-
-# baseline
-gazeDur <- lmer(gaze_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + length + frequency + surprisal + norm_ianum + (1|text_id) + (1|participant_id), data = data)
-summary(gazeDur)
-
-# main model
-gazeDurInt <- lmer(gaze_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + norm_word_pos * n_triplets_activated + norm_ianum * n_triplets_activated + length + frequency + surprisal + (1|text_id) + (1|participant_id), data = data)
-summary(gazeDurInt)
-
-# 4.3. Total Reading Time
-
-# baseline
-totalDur <- lmer(total_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + length + frequency + surprisal + norm_ianum + (1|text_id) + (1|participant_id), data = data)
-summary(totalDur)
-
-# main model
-totalDurInt <- lmer(total_dur ~ norm_word_pos * sent_length + norm_word_pos * sentnum + norm_word_pos * n_triplets_activated + norm_ianum * n_triplets_activated + length + frequency + surprisal + (1|text_id) + (1|participant_id), data = data)
-summary(totalDurInt)
-
-
-# 5. sanity checks
+# sanity checks
 # co-relation between n of triplets and word position in text
 cor.test(data$n_triplets, data$ianum)
 # co-relation between n of triplets and word position in sentence
@@ -273,10 +230,3 @@ cor.test(data$n_triplets, data$norm_word_pos)
 cor.test(data$n_triplets, data$sum_scores)
 # correlation between n of triplets and surprisal
 cor.test(data$n_triplets_added, data$surprisal)
-
-# 6. isolate last sentence and add interaction between n_triplets and norm_word_pos
-data_last_sentence <- data[data$norm_sentnum == 1,]
-gazeDur <- lmer(gaze_dur ~ norm_word_pos * sent_length + norm_word_pos * n_triplets + length + frequency + surprisal + ianum + (1|text_id)  + (1|participant_id), data = data_last_sentence)
-summary(gazeDur)
-totalDur <- lmer(total_dur ~ norm_word_pos * sent_length + norm_word_pos * n_triplets + length + frequency + surprisal + ianum + (1|text_id) + (1|participant_id), data = data_last_sentence)
-summary(totalDur)

@@ -153,7 +153,7 @@ def create_words_df(corpus_name, text_df):
 
     return words_df
 
-def extract_texts(corpus_name:str, data_filepath:str='', save_dir:str='', level:str=''):
+def extract_texts(corpus_name:str, data_filepath:str='', word_level=True, save_dir:str='', onestop_level:str=''):
 
     '''
     Extract texts from text file and do some pre-processing in the texts.
@@ -165,41 +165,48 @@ def extract_texts(corpus_name:str, data_filepath:str='', save_dir:str='', level:
     :return:
     '''
 
+    word_dataset = None
+
     if corpus_name == 'provo':
         if not data_filepath:
             data_filepath = "../data/raw/Provo_Corpus-Predictability_Norms.csv"
-        text_dataset = extract_provo_texts(data_filepath)
-        word_dataset = create_words_df(corpus_name, text_dataset)
         if not save_dir:
             save_dir = "../data/processed"
+        text_dataset = extract_provo_texts(data_filepath)
         filepath_texts = f"{save_dir}/{corpus_name}_texts.csv"
-        filepath_words = f"{save_dir}/{corpus_name}_words.csv"
         text_dataset.to_csv(filepath_texts, index=False)
-        word_dataset.to_csv(filepath_words, index=False)
+        if word_level:
+            word_dataset = create_words_df(corpus_name, text_dataset)
+            filepath_words = f"{save_dir}/{corpus_name}_words.csv"
+            word_dataset.to_csv(filepath_words, index=False)
 
     elif corpus_name == 'meco':
         if not data_filepath:
             data_filepath = "../data/raw/supp_texts.csv"
-        text_dataset = extract_meco_texts(data_filepath)
-        word_dataset = create_words_df(corpus_name, text_dataset)
         if not save_dir:
             save_dir = "../data/processed"
+        text_dataset = extract_meco_texts(data_filepath)
         filepath_texts = f"{save_dir}/{corpus_name}_texts.csv"
-        filepath_words = f"{save_dir}/{corpus_name}_words.csv"
         text_dataset.to_csv(filepath_texts, index=False)
-        word_dataset.to_csv(filepath_words, index=False)
+        if word_level:
+            word_dataset = create_words_df(corpus_name, text_dataset)
+            filepath_words = f"{save_dir}/{corpus_name}_words.csv"
+            word_dataset.to_csv(filepath_words, index=False)
 
     elif corpus_name == 'onestop':
         if not data_filepath:
             data_filepath = "../data/raw/ia_Paragraph_ordinary.csv"
-        text_dataset = extract_onestop_texts(data_filepath, level)
-        word_dataset = create_words_df(corpus_name, text_dataset)
         if not save_dir:
             save_dir = "../data/processed"
+        text_dataset = extract_onestop_texts(data_filepath, onestop_level)
         filepath_texts = f"{save_dir}/{corpus_name}_texts.csv"
-        filepath_words = f"{save_dir}/{corpus_name}_words.csv"
+        if onestop_level == 'article':
+            filepath_texts = f"{save_dir}/{corpus_name}_articles.csv"
         text_dataset.to_csv(filepath_texts, index=False)
-        word_dataset.to_csv(filepath_words, index=False)
+        if word_level:
+            word_dataset = create_words_df(corpus_name, text_dataset)
+            filepath_words = f"{save_dir}/{corpus_name}_words.csv"
+            word_dataset.to_csv(filepath_words, index=False)
 
     else:
         raise NotImplementedError("Parameter `corpus_name` must be either `provo`, `meco` or `onestop`.")
@@ -918,9 +925,10 @@ def main():
     """
 
     # corpus name
-    corpus_name = 'meco'  # 'meco'  # 'provo' # 'onestop'
+    corpus_name = 'onestop'  # 'meco'  # 'provo' # 'onestop'
     # file with eye-tracking data
     raw_eye_move_filepath = '' # '../data/raw/ia_Paragraph_ordinary.csv' # '../data/raw/joint_data_trimmed.csv'  # '../data/raw/Provo_Corpus-Eyetracking_Data.csv'
+    raw_text_filepath = ''
     # file with word frequency resource if freq not in eye mov data
     frequency_filepath = '../data/raw/wordlist_meco.csv' # '../data/raw/wordlist_meco.csv'  # '../data/raw/SUBTLEX_UK.txt'
     surprisal_filepath = f'../data/processed/{corpus_name}_surprisal.csv'
@@ -929,22 +937,22 @@ def main():
     processed_words_filepath = f'../data/processed/{corpus_name}_words.csv'
 
     # print('Processing corpus texts...')
-    # texts_df, words_df = extract_texts(corpus_name)
-    words_df = pd.read_csv(processed_words_filepath)
-    words_df = add_variables_to_word_data(words_df,
-                                          [''], # ['length','frequency','surprisal','sent_length','word_pos','norm_ianum','norm_sent_id'],
-                                          corpus_name,
-                                          frequency_filepath,
-                                          surprisal_filepath)
-                                          # processed_words_filepath.replace('.csv','_surprisal_multi_tokens.csv'))
-    words_df.to_csv(processed_words_filepath, index=False) #.replace('.csv','_all.csv')
+    texts_df, words_df = extract_texts(corpus_name, raw_text_filepath, word_level=False, onestop_level='article')
+    # words_df = pd.read_csv(processed_words_filepath)
+    # words_df = add_variables_to_word_data(words_df,
+    #                                       ['article_text_id'], # ['length','frequency','surprisal','sent_length','word_pos','norm_ianum','norm_sent_id'],
+    #                                       corpus_name,
+    #                                       frequency_filepath,
+    #                                       surprisal_filepath)
+    #                                       # processed_words_filepath.replace('.csv','_surprisal_multi_tokens.csv'))
+    # words_df.to_csv(processed_words_filepath, index=False) #.replace('.csv','_all.csv')
 
     # print('Processing data with eye movements...')
     # eye_data = pre_process_eye_data(corpus_name, raw_eye_move_filepath)
     # eye_data.to_csv(processed_eye_move_filepath, index=False)
     # eye_data = pd.read_csv(processed_eye_move_filepath)
     # check_alignment(corpus_name, words_df, eye_data)
-    # eye_data = add_variables_to_eye_data(['sent_info','word_pos','norm_ianum','article_ianum'],
+    # eye_data = add_variables_to_eye_data(['article_text_id'],
     #     eye_data, corpus_name, processed_words_filepath, frequency_filepath)
     # eye_data.to_csv(processed_eye_move_filepath, index=False)
     # if corpus_name == 'onestop':
