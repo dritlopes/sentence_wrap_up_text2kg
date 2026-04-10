@@ -14,7 +14,7 @@ load_dotenv()
 # Define constants
 CORPUS = 'meco' # options: 'onestop', 'meco', 'provo'
 MODEL = "gpt-4o-mini"
-INPUT_FILEPATH = f"../data/processed/{CORPUS}.csv"
+INPUT_FILEPATH = f"../data/processed/{CORPUS}_texts.csv"
 OUTPUT_FILEPATH = f"../data/output/{MODEL}/{CORPUS}/{MODEL}_triplets_{CORPUS}.json"
 N_RUNS = 1
 LEVEL = ''  # options: 'article', 'paragraph' (only for onestop)

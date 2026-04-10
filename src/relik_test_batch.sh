@@ -18,4 +18,4 @@ module load 2024 PyTorch-bundle/2.1.2-foss-2023a-CUDA-12.1.1
 pip install -r ../requirements.txt
 
 # source ../.venv/bin/activate
-python extract_triplets.py
+python generate_triplets_relik.py

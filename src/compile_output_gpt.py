@@ -4,6 +4,14 @@ import json
 import re
 import os
 
+def add_sent_id(words_df, corpus):
+
+    if corpus in ['meco','provo']:
+        if 'sent_id' not in words_df.columns:
+            words_df = (words_df.groupby(['text_id'])
+                        .apply(lambda group: assign_sentence(group)).reset_index(drop=True))
+            words_df.to_csv(f'../data/processed/{corpus}_words.csv', index=False)
+
 def assign_sentence(group):
 
     text = ' '.join(group['ia'].tolist())
@@ -119,7 +127,7 @@ def find_span_indices(span:str, words:pd.DataFrame):
 
     return best_match
 
-def align_triplets_to_words(text_triplets:list[dict], words_df:pd.DataFrame, corpus, text_type=''):
+def align_triplets_to_words(text_triplets:list[dict], words_df:pd.DataFrame, text_type=''):
     """
     Given a list of triplets and a list of words, align the triplets to the words based on the triplet mentions.
     :return: dict with word ids as keys and dict with word form and triplets as values
@@ -127,9 +135,7 @@ def align_triplets_to_words(text_triplets:list[dict], words_df:pd.DataFrame, cor
     # does not account for re-analysis (e.g. new triplets extracted from sentence n-1 do not get added to words in sentence n-1 nor do they replace the triplets in n-1)
 
     word_to_triplet = dict()
-    function_words = {'the', 'and', 'but', 'if', 'or', 'because', 'as', 'until', 'while', 'of', 'at', 'by', 'for',
-                      'with', 'about', 'against', 'between', 'into', 'through', 'during', 'before', 'after', 'above',
-                      'below'}
+    open_pos_tags = {'ADJ','ADV','INTJ','NOUN','PROPN','VERB'}
 
     if text_type == '_articles':
         ianum_col = 'article_ianum'
@@ -140,7 +146,7 @@ def align_triplets_to_words(text_triplets:list[dict], words_df:pd.DataFrame, cor
 
     # create dictionary mapping word ids to triplets
     for word, word_id in zip(words_df['ia'].tolist(), words_df[ianum_col].tolist()):
-        word_to_triplet[str(word_id)] = {'word': word, 'triplets': [], 'new_triplets':[]}
+        word_to_triplet[str(word_id)] = {'word': word, 'triplets': [], 'new_triplets':[], 'distance_to_first_mention':[]}
 
     # make sure words and triplets were extracted from the same sentence
     for step_index, sentence_triplets in enumerate(text_triplets):
@@ -158,6 +164,7 @@ def align_triplets_to_words(text_triplets:list[dict], words_df:pd.DataFrame, cor
             else:
                 # print(f'Aligning triplet: {triplet}')
                 words = words_df_filtered['ia'].tolist()
+                pos_tags = words_df_filtered['pos_tag'].tolist()
                 for key, value in triplet.items():
                     # entity_1, relation, entity_2
                     if key != 'confidence':
@@ -172,6 +179,7 @@ def align_triplets_to_words(text_triplets:list[dict], words_df:pd.DataFrame, cor
                             #     print(word, sent_id)
                             raise ValueError(f"Mention '{value['mention']}' in triplet {triplet} and step {sentence_triplets['step']} not in word list: {words}")
                         mention_indices.append(indices)
+                # print(mention_indices)
 
                 # disambiguate mentions that had more than one best candidate by giving preference to candidate in the same sentence as the other mentions in triplet.
                 for i_c, candidate_indices in enumerate(mention_indices):
@@ -195,13 +203,15 @@ def align_triplets_to_words(text_triplets:list[dict], words_df:pd.DataFrame, cor
                             if mention_candidate_sent_id == other_mention_sent_id_2:
                                 score += 1
                             scores.append(score)
-                        # if the other mentions are not in the same sentence as any of the candidates, prefer most recent candidate will be preferred (first index).
+                        # if the other mentions are not in the same sentence as any of the candidates, prefer most recent candidate (first index).
                         mention_indices[i_c] = [mention_indices[i_c][scores.index(max(scores))]]
                         # print(mention_indices[i_c])
 
                 # find which mention is the latest in the text
-                max_index = 0
+                max_index, min_index = 0, len(words_df['ia'].tolist())-1
                 latest_mention_index = None
+                earliest_mention_index = None
+                distance_between_mentions = None
                 for mention_index in mention_indices:
                     # print(mention_index)
                     # print(words_df_filtered.ia.values[mention_index[0][0]:mention_index[0][1]])
@@ -209,14 +219,23 @@ def align_triplets_to_words(text_triplets:list[dict], words_df:pd.DataFrame, cor
                         if mention_index[0][-1]-1 >= max_index:
                             max_index = mention_index[0][-1]-1
                             latest_mention_index = mention_index[0]
+                        if mention_index[0][-1]-1 <= min_index:
+                            min_index = mention_index[0][-1]-1
+                            earliest_mention_index = mention_index[0]
+                if latest_mention_index and earliest_mention_index:
+                    # compute distance between lastest and earliest mention in text
+                    distance_between_mentions = latest_mention_index[-1]-1 - earliest_mention_index[0]
+                # print(earliest_mention_index, latest_mention_index)
+                # print(distance_between_mentions)
 
                 # find which word in mention span gets the triplet
                 if latest_mention_index:
                     # find last content word
                     mention_words = words[latest_mention_index[0]:latest_mention_index[-1]]
+                    mention_pos_tags = pos_tags[latest_mention_index[0]:latest_mention_index[-1]]
                     # print('Latest mention index:', latest_mention_index)
                     # print('Latest mention word:', words[latest_mention_index[0]:latest_mention_index[-1]])
-                    content_words = [word for word in mention_words if word.lower() not in function_words]
+                    content_words = [word for word, pos_tag in zip(mention_words, mention_pos_tags) if pos_tag in open_pos_tags]
                     if content_words:
                         last_content_word = content_words[-1]
                         # print('Latest content word: ', last_content_word)
@@ -233,6 +252,7 @@ def align_triplets_to_words(text_triplets:list[dict], words_df:pd.DataFrame, cor
                             if str(last_content_word_id) in word_to_triplet.keys():
                                 if triplet not in word_to_triplet[str(last_content_word_id)]['new_triplets']:
                                     word_to_triplet[str(last_content_word_id)]['new_triplets'].append(triplet)
+                                    word_to_triplet[str(last_content_word_id)]['distance_to_first_mention'].append(distance_between_mentions)
 
     return word_to_triplet
 
@@ -256,7 +276,7 @@ def compile_output_gpt(triplets:dict, words_df:pd.DataFrame, corpus='', text_typ
                                             (words_df['article_id'] == article_id) &
                                             (words_df['difficulty_level'] == difficulty_level)]
                 print('Processing article:', article_batch, article_id, difficulty_level)
-                word_to_triplet = align_triplets_to_words(text_triplets, words_df_filtered, corpus, text_type)
+                word_to_triplet = align_triplets_to_words(text_triplets, words_df_filtered, text_type)
                 triplet_map[f'{article_batch}-{article_id}-{difficulty_level}'] = word_to_triplet
         else:
             # onestop paragraph level
@@ -273,7 +293,7 @@ def compile_output_gpt(triplets:dict, words_df:pd.DataFrame, corpus='', text_typ
                                            (words_df['difficulty_level'] == difficulty_level) &
                                            (words_df['paragraph_id'] == paragraph_id)]
                 # print('Processing paragraph:', article_batch, article_id, difficulty_level, paragraph_id)
-                word_to_triplet = align_triplets_to_words(text_triplets, words_df_filtered,corpus)
+                word_to_triplet = align_triplets_to_words(text_triplets, words_df_filtered)
                 triplet_map[f'{article_batch}-{article_id}-{difficulty_level}-{paragraph_id}'] = word_to_triplet
 
     elif corpus in ['meco','provo']:
@@ -283,7 +303,7 @@ def compile_output_gpt(triplets:dict, words_df:pd.DataFrame, corpus='', text_typ
             text_id = str(text_metadata['text_id'])
             # filter words data for the current text
             words_df_filtered = words_df[(words_df['text_id'] == text_id)]
-            word_to_triplet = align_triplets_to_words(text_triplets, words_df_filtered,corpus)
+            word_to_triplet = align_triplets_to_words(text_triplets, words_df_filtered)
             triplet_map[text_id] = word_to_triplet
     else:
         raise NotImplementedError(f'Corpus {corpus} not implemented')
@@ -317,11 +337,18 @@ def add_triplets_to_words_df(triplet_map:dict, words_df:pd.DataFrame, corpus:str
             if key in triplet_map.keys():
                 triplets = triplet_map.get(key, {}).get(word_id, {}).get('triplets', [])
                 new_triplets = triplet_map.get(key, {}).get(word_id, {}).get('new_triplets', [])
+                distances = triplet_map.get(key, {}).get(word_id, {}).get('distance_to_first_mention', [])
                 new_row = row.to_dict()
                 new_row['triplets'] = triplets
                 new_row['n_triplets'] = len(triplets)
                 new_row['new_triplets'] = new_triplets
                 new_row['n_new_triplets'] = len(new_triplets)
+                new_row['triplet_added'] = 1 if len(new_triplets) > 0 else 0
+                new_row['distance_to_first_mention'] = distances
+                if distances:
+                    new_row['agg_distance'] = sum(distances)/len(distances)
+                else:
+                    new_row['agg_distance'] = 0
                 all_rows.append(new_row)
 
         return pd.DataFrame(all_rows)
@@ -330,89 +357,135 @@ def add_triplets_to_words_df(triplet_map:dict, words_df:pd.DataFrame, corpus:str
         raise ValueError(f'Triplet mapping is empty.')
 
 
-CORPUS = 'onestop'
-MODEL = 'gpt-4o-mini'
-N_RUNS = 10
-text_type = '_articles' # '_articles' if article onestop, else ''
+def merge_triplets_and_words(triplets_run_filepath, output_word_run_filepath, words_df, corpus, text_type, run):
 
-# read eye movement word data
-words_df = pd.read_csv(f'../data/processed/{CORPUS}_words.csv')
-eye_df = pd.read_csv(f'../data/processed/{CORPUS}_eye_mov.csv')
+    # read in triplets data
+    with open(triplets_run_filepath, 'r', encoding='utf-8') as f:
+        triplets = json.load(f)
 
-# generate sentence ids if not in dataframe
-if CORPUS in ['meco','provo']:
-    if 'sent_id' not in words_df.columns:
-        words_df = (words_df.groupby(['text_id'])
-                    .apply(lambda group: assign_sentence(group)).reset_index(drop=True))
-        words_df.to_csv(f'../data/processed/{CORPUS}_words.csv', index=False)
+    # align triplets to words in word data
+    if corpus == 'onestop':
+        words_df = (words_df.groupby(['article_batch', 'article_id', 'difficulty_level'])
+                    .apply(lambda group: assign_article_level_ids(group), include_groups=True).reset_index(drop=True))
 
-# iterate over runs
-datasets = []
-word_datasets = []
-for run in range(1, N_RUNS+1):
+    triplet_map = compile_output_gpt(triplets, words_df, corpus, text_type=text_type)
+    words_with_triplets_df = add_triplets_to_words_df(triplet_map, words_df, corpus, text_type=text_type)
+    words_with_triplets_df.to_csv(output_word_run_filepath, index=False)
+    # words_with_triplets_df = pd.read_csv(output_word_filepath)
+    words_with_triplets_df['run_id'] = [run for i in range(len(words_with_triplets_df))]
 
-    output_eye_run_filepath = f'../data/output/{MODEL}/{CORPUS}/{CORPUS}{text_type}_eye_mov_plus_triplets_{MODEL}_{run}.csv'
+    return words_with_triplets_df
 
-    if os.path.exists(output_eye_run_filepath):
-        df = pd.read_csv(output_eye_run_filepath)
-        datasets.append(df)
+def merge_triplets_and_eye(corpus, eye_df, words_with_triplets_df, output_eye_run_filepath, text_type, run):
+
+    if corpus == 'onestop':
+        if text_type == '_articles':
+            eye_with_triplets_df = pd.merge(eye_df, words_with_triplets_df[
+                ['article_batch', 'article_id', 'difficulty_level', 'article_ianum', 'triplets', 'n_triplets',
+                 'new_triplets', 'n_new_triplets', 'triplet_added', 'distance_to_first_mention', 'agg_distance']],
+                          how='left', on=['article_batch', 'article_id', 'difficulty_level', 'article_ianum'])
+        else:
+            eye_with_triplets_df = pd.merge(eye_df, words_with_triplets_df[
+                ['article_batch', 'article_id', 'difficulty_level', 'paragraph_id', 'ianum', 'triplets', 'n_triplets',
+                 'new_triplets', 'n_new_triplets', 'triplet_added', 'distance_to_first_mention', 'agg_distance']],
+                          how='left', on=['article_batch', 'article_id', 'difficulty_level', 'paragraph_id', 'ianum'])
+
+    elif corpus in ['meco', 'provo']:
+        words_with_triplets_df['text_id'] = words_with_triplets_df['text_id'].astype(str)
+        words_with_triplets_df['ianum'] = words_with_triplets_df['ianum'].astype(str)
+        eye_df['text_id'] = eye_df['text_id'].astype(str)
+        eye_df['ianum'] = eye_df['ianum'].astype(str)
+        eye_with_triplets_df = pd.merge(eye_df, words_with_triplets_df[
+            ['text_id', 'ianum', 'triplets', 'n_triplets', 'new_triplets',
+             'n_new_triplets', 'triplet_added', 'distance_to_first_mention', 'agg_distance']],
+                      how='left', on=['text_id', 'ianum'])
 
     else:
+        raise NotImplementedError(f'Corpus {corpus} not implemented')
 
-        output_word_run_filepath = f'../data/output/{MODEL}/{CORPUS}/{CORPUS}{text_type}_words_plus_triplets_{MODEL}_{run}.csv'
+    eye_with_triplets_df['run_id'] = [run for i in range(len(eye_with_triplets_df))]
+    eye_with_triplets_df.to_csv(output_eye_run_filepath, index=False)
 
-        if os.path.exists(output_word_run_filepath):
-            words_with_triplets_df = pd.read_csv(output_word_run_filepath)
-            if 'run_id' not in words_with_triplets_df.columns:
-                words_with_triplets_df['run_id'] = [run for i in range(len(words_with_triplets_df))]
-            word_datasets.append(words_with_triplets_df)
-        else:
-            print(f'Aligning triplets from run {run} to words in corpus...')
+    return eye_with_triplets_df
 
-            # read in triplets data
-            with open(f'../data/output/{MODEL}/{CORPUS}/{MODEL}_triplets_{CORPUS}{text_type}_{run}.json', 'r', encoding='utf-8') as f:
-                triplets = json.load(f)
+def align_triplets(words_df, eye_df, corpus, triplets_run_filepath, output_word_run_filepath, output_eye_run_filepath, text_type, run):
 
-            # align triplets to words in word data
-            if CORPUS == 'onestop':
-                words_df = (words_df.groupby(['article_batch', 'article_id', 'difficulty_level'])
-                            .apply(lambda group: assign_article_level_ids(group), include_groups=True).reset_index(drop=True))
-            triplet_map = compile_output_gpt(triplets, words_df, CORPUS, text_type=text_type)
-            words_with_triplets_df = add_triplets_to_words_df(triplet_map, words_df, CORPUS, text_type=text_type)
-            # words_with_triplets_df.to_csv(output_word_run_filepath, index=False)
-            # words_with_triplets_df = pd.read_csv(output_run_filepath)
-            words_with_triplets_df['run_id'] = [run for i in range(len(words_with_triplets_df))]
-            word_datasets.append(words_with_triplets_df)
+    print(f'Aligning triplets from run {run} to words in corpus...')
 
-        print(f'Adding triplets from run {run} to eye movement data...')
+    words_with_triplets_df = merge_triplets_and_words(triplets_run_filepath, output_word_run_filepath, words_df, corpus, text_type, run)
 
-        # add triplets to eye mov data
-        if CORPUS == 'onestop':
-            if text_type == '_articles':
-                df = pd.merge(eye_df, words_with_triplets_df[
-                    ['article_batch', 'article_id', 'difficulty_level', 'article_ianum', 'triplets', 'n_triplets', 'new_triplets', 'n_new_triplets']],
-                              how='left', on=['article_batch', 'article_id', 'difficulty_level', 'article_ianum'])
+    print(f'Adding triplets from run {run} to eye movement data...')
+
+    eye_with_triplets_df = merge_triplets_and_eye(corpus, eye_df, words_with_triplets_df, output_eye_run_filepath, text_type, run)
+
+    return words_with_triplets_df, eye_with_triplets_df
+
+def main():
+
+    corpus = 'onestop'
+    model = 'gpt-4o-mini'
+    n_runs = 1 # 10
+    skip_if_path_exists = False
+    merge_runs = False
+    text_type = '' # '_articles' if article onestop, else ''
+
+    # read eye movement word data
+    words_df = pd.read_csv(f'../data/processed/{corpus}_words.csv')
+    eye_df = pd.read_csv(f'../data/processed/{corpus}_eye_mov.csv')
+
+    # generate sentence ids if not in dataframe
+    add_sent_id(words_df, corpus)
+
+    # iterate over runs
+    datasets = []
+    word_datasets = []
+    for run in range(1, n_runs+1):
+
+        output_eye_run_filepath = f'../data/output/{model}/{corpus}/{corpus}{text_type}_eye_mov_plus_triplets_{model}_{run}_dist.csv'
+        output_word_run_filepath = f'../data/output/{model}/{corpus}/{corpus}{text_type}_words_plus_triplets_{model}_{run}_dist.csv'
+        triplets_run_filepath = f'../data/output/{model}/{corpus}/{model}_triplets_{corpus}{text_type}_{run}.json'
+
+        if skip_if_path_exists:
+
+            if os.path.exists(output_eye_run_filepath):
+                df = pd.read_csv(output_eye_run_filepath)
+                datasets.append(df)
             else:
-                df = pd.merge(eye_df, words_with_triplets_df[['article_batch', 'article_id', 'difficulty_level', 'paragraph_id', 'ianum', 'triplets', 'n_triplets', 'new_triplets', 'n_new_triplets']],
-                                  how='left', on=['article_batch', 'article_id', 'difficulty_level', 'paragraph_id', 'ianum'])
-
-        elif CORPUS in ['meco','provo']:
-            words_with_triplets_df['text_id'] = words_with_triplets_df['text_id'].astype(str)
-            words_with_triplets_df['ianum'] = words_with_triplets_df['ianum'].astype(str)
-            eye_df['text_id'] = eye_df['text_id'].astype(str)
-            eye_df['ianum'] = eye_df['ianum'].astype(str)
-            df = pd.merge(eye_df, words_with_triplets_df[['text_id', 'ianum', 'triplets', 'n_triplets', 'new_triplets', 'n_new_triplets']],
-                              how='left', on=['text_id', 'ianum'])
-
+                if os.path.exists(output_word_run_filepath):
+                    words_with_triplets_df = pd.read_csv(output_word_run_filepath)
+                    if 'run_id' not in words_with_triplets_df.columns:
+                        words_with_triplets_df['run_id'] = [run for i in range(len(words_with_triplets_df))]
+                    word_datasets.append(words_with_triplets_df)
+                else:
+                    words_with_triplets_df, eye_with_triplets_df = align_triplets(words_df,
+                                                                                 eye_df,
+                                                                                 corpus,
+                                                                                 triplets_run_filepath,
+                                                                                 output_word_run_filepath,
+                                                                                 output_eye_run_filepath,
+                                                                                 text_type, run)
+                    if merge_runs:
+                        word_datasets.append(words_with_triplets_df)
+                        datasets.append(eye_with_triplets_df)
         else:
-            raise NotImplementedError(f'Corpus {CORPUS} not implemented')
+            words_with_triplets_df, eye_with_triplets_df = align_triplets(words_df,
+                                                                         eye_df,
+                                                                         corpus,
+                                                                         triplets_run_filepath,
+                                                                         output_word_run_filepath,
+                                                                         output_eye_run_filepath,
+                                                                         text_type, run)
+            if merge_runs:
+                word_datasets.append(words_with_triplets_df)
+                datasets.append(eye_with_triplets_df)
 
-        df['run_id'] = [run for i in range(len(df))]
-        # df.to_csv(output_eye_run_filepath, index=False)
-        datasets.append(df)
 
-# merge data of all runs
-df = pd.concat(datasets, ignore_index=True)
-df.to_csv(f'../data/output/{MODEL}/{CORPUS}/{CORPUS}{text_type}_eye_mov_plus_triplets_{MODEL}.csv', index=False)
-df2 = pd.concat(word_datasets, ignore_index=True)
-df2.to_csv(f'../data/output/{MODEL}/{CORPUS}/{CORPUS}{text_type}_words_plus_triplets_{MODEL}.csv', index=False)
+    if merge_runs:
+        # merge data of all runs
+        df = pd.concat(datasets, ignore_index=True)
+        df.to_csv(f'../data/output/{model}/{corpus}/{corpus}{text_type}_eye_mov_plus_triplets_{model}.csv', index=False)
+        df2 = pd.concat(word_datasets, ignore_index=True)
+        df2.to_csv(f'../data/output/{model}/{corpus}/{corpus}{text_type}_words_plus_triplets_{model}.csv', index=False)
+
+if __name__ == '__main__':
+    main()

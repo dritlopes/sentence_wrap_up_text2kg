@@ -10,6 +10,7 @@ import os
 import string
 import re
 
+
 def extract_provo_texts(data_dir):
 
     """
@@ -347,17 +348,60 @@ def pre_process_meco_data(filepath):
     return df
 
 def remove_rows(df, conditions):
+    """
+    ISSUE: fix errorr in onestop data where some words split into two tokens incorrectly.
+    PLAN: get rid of unwanted extra token rows,
+          shift later word indices so the numbering is aligned.
+    OVERALL PLAN: process only inside the specific participant and paragraph.
+    :param df: onestop eye movement data in pandas dataframe.
+    :param conditions: dict with specific tokenisation info.
+    """
 
-    df = df.loc[~((df['ia'] == conditions['ia1']) & (df['ianum'] == conditions['ianum1']))]
-    df = df.loc[~((df['ia'] == conditions['ia2']) & (df['ianum'] == conditions['ianum2']) & (
-            df['article_title'] == conditions['article_title']))]
-    df['ianum'] = df.apply(
-        lambda x: x['ianum'] - 1 if (x['ianum'] >= conditions['ianum3'])
-                                    & (x[
-                                           'article_title'] == conditions['article_title'])
-                                    & (x['difficulty_level'] == conditions['difficulty_level'])
-                                    & (conditions['ia'] in str(x['paragraph'])) else x['ianum'], axis=1)
-    return df
+    # unpack conditions
+    title_guard = conditions.get("article_title", None)
+    diff_guard = conditions.get("difficulty_level", None)
+    ia_guard = conditions.get("ia", None)
+
+    ia1, ianum1 = conditions["ia1"], conditions["ianum1"]
+    ia2, ianum2 = conditions["ia2"], conditions["ianum2"]
+    ianum3 = conditions["ianum3"]
+
+    group_cols = ["participant_id", "article_title", "difficulty_level", "paragraph_id"]
+
+    fixed_groups = []
+
+    for _, g in df.groupby(group_cols, sort=False):
+        if title_guard is not None and g["article_title"].iloc[0] != title_guard:
+            fixed_groups.append(g)
+            continue
+        if diff_guard is not None and g["difficulty_level"].iloc[0] != diff_guard:
+            fixed_groups.append(g)
+            continue
+        if ia_guard is not None and ia_guard not in str(g["paragraph"].iloc[0]):
+            fixed_groups.append(g)
+            continue
+
+        # only fix if the artifact is truly present in this participant+paragraph
+        has1 = ((g["ia"] == ia1) & (g["ianum"] == ianum1)).any()
+        has2 = ((g["ia"] == ia2) & (g["ianum"] == ianum2)).any()
+
+        if not (has1 and has2):
+            fixed_groups.append(g)
+            continue
+
+        g2 = g.copy()
+
+        # drop the two error rows
+        g2 = g2.loc[~((g2["ia"] == ia1) & (g2["ianum"] == ianum1))]
+        g2 = g2.loc[~((g2["ia"] == ia2) & (g2["ianum"] == ianum2))]
+
+        # shift later indices
+        g2.loc[g2["ianum"] >= ianum3, "ianum"] = g2.loc[g2["ianum"] >= ianum3, "ianum"] - 1
+
+        fixed_groups.append(g2)
+
+    out = pd.concat(fixed_groups, ignore_index=True)
+    return out
 
 def pre_process_onestop_data(filepath):
 
@@ -379,6 +423,7 @@ def pre_process_onestop_data(filepath):
              'subtlex_frequency',
              'wordfreq_frequency',
              'gpt2_surprisal',
+             'universal_pos'
              ]]
 
     df = df.rename(columns={'IA_FIRST_RUN_DWELL_TIME': 'gaze_dur',
@@ -396,7 +441,7 @@ def pre_process_onestop_data(filepath):
     df['ianum'] = df['ianum'].apply(lambda x: int(x) - 1)
 
     # fix error in tokenization (inconsistent tokenization across participants)
-    df['ia'] = df['ia'].str.replace('culture"".', 'culture".')
+    df['ia'] = df['ia'].str.replace('culture"".', 'culture".', regex=False)
     df = remove_rows(df, {'ia': 'deep- fried',
                           'ia1': 'deep-',
                           'ianum1': 15,
@@ -751,6 +796,33 @@ def assign_sentence_frequency(group):
     group['sent_mean_frequency'] = [np.mean(group['frequency'].tolist()) for i in range(len(group))]
     return group
 
+def assign_pos_tag(group, nlp):
+
+    pos_tags = []
+    text = ' '.join(group['ia'].tolist())
+    doc = nlp(text)
+    index = 0
+
+    for word in group['ia'].tolist():
+        if doc[index].text == word: # spacy token equals word in corpus
+            pos_tag = doc[index].pos_
+            index += 1
+        elif doc[index].pos_ == 'PUNCT': # if spacy token is a punctuation which , e.g. ("'
+            if doc[index +1].pos_ != 'PUNCT':
+                pos_tag = doc[index + 1].pos_
+                index += 2
+            else: # punctuation followed by punctuation, e.g. ), ).
+                pos_tag = doc[index + 2].pos_
+                index += 3
+        else: # if spacy token does not correspond to the word in corpus e.g. ,.'s
+            pos_tag = doc[index].pos_
+            index += 2 # skip spacy punctuation or suffix that follows word
+        pos_tags.append(pos_tag)
+
+    assert len(pos_tags) == len(group['ia'].tolist())
+    group['pos_tag'] = pos_tags
+    return group
+
 def normalize(values):
     return (np.array(values) - np.min(values)) / (np.max(values) - np.min(values))
 
@@ -777,6 +849,11 @@ def add_variables_to_word_data(words_df, variables, corpus_name, frequency_filep
                         outfile.write(f'CORPUS_TOKEN\tMODEL_TOKEN\n')
                         for model_token, corpus_token in zip(model_tokens, corpus_tokens):
                             outfile.write(f'{corpus_token}\t{model_token}\n')
+
+        if 'pos_tag' in variables:
+            nlp = spacy.load('en_core_web_sm')
+            words_df = (words_df.groupby(['text_id'])
+                  .apply(lambda group: assign_pos_tag(group, nlp)).reset_index(drop=True))
 
         if 'sent_length' in variables:
             words_df = (words_df.groupby(['text_id', 'sent_id'])
@@ -879,7 +956,7 @@ def add_variables_to_eye_data(variables:list[str],
 
     elif corpus_name == 'onestop':
 
-        if 'sent_info' in variables and words_df:
+        if 'sent_info' in variables:
             if 'sent_id' not in words_df.columns and 'sent_length' not in words_df.columns:
                 words_df = (words_df.groupby(['article_title', 'difficulty_level', 'paragraph_id'])
                             .apply(lambda group: assign_sentence(group)).reset_index(drop=True))
@@ -895,7 +972,7 @@ def add_variables_to_eye_data(variables:list[str],
             df = (df.groupby(['participant_id', 'article_title', 'difficulty_level', 'paragraph_id'])
                   .apply(lambda group: norm_word_pos_in_text(group)).reset_index(drop=True))
 
-        if 'article_ianum' in variables and words_df:
+        if 'article_ianum' in variables:
             if 'article_ianum' in words_df.columns:
                 df = df.merge(words_df[['article_batch', 'article_id', 'difficulty_level', 'paragraph_id', 'ianum', 'article_ianum']],
                               how='left', on=['article_batch', 'article_id', 'difficulty_level', 'paragraph_id', 'ianum'])
@@ -921,48 +998,48 @@ def main():
 
     """
     Process corpus files.
-    Returns: write out processed file:
+    Returns: write out processed file
     """
 
     # corpus name
-    corpus_name = 'onestop'  # 'meco'  # 'provo' # 'onestop'
+    corpus_name = 'provo'  # 'meco'  # 'provo' # 'onestop'
     # file with eye-tracking data
-    raw_eye_move_filepath = '' # '../data/raw/ia_Paragraph_ordinary.csv' # '../data/raw/joint_data_trimmed.csv'  # '../data/raw/Provo_Corpus-Eyetracking_Data.csv'
+    raw_eye_move_filepath = '../data/raw/ia_Paragraph_ordinary.csv' # '../data/raw/ia_Paragraph_ordinary.csv' # '../data/raw/joint_data_trimmed.csv'  # '../data/raw/Provo_Corpus-Eyetracking_Data.csv'
     raw_text_filepath = ''
     # file with word frequency resource if freq not in eye mov data
-    frequency_filepath = '../data/raw/wordlist_meco.csv' # '../data/raw/wordlist_meco.csv'  # '../data/raw/SUBTLEX_UK.txt'
-    surprisal_filepath = f'../data/processed/{corpus_name}_surprisal.csv'
+    frequency_filepath = '' # '../data/raw/wordlist_meco.csv'  # '../data/raw/SUBTLEX_UK.txt'
+    surprisal_filepath = '' # f'../data/processed/{corpus_name}_surprisal.csv'
     # filepath to save out pre-processed eye-tracking data
     processed_eye_move_filepath = f'../data/processed/{corpus_name}_eye_mov.csv'
     processed_words_filepath = f'../data/processed/{corpus_name}_words.csv'
 
-    # print('Processing corpus texts...')
+    print('Processing corpus texts...')
     texts_df, words_df = extract_texts(corpus_name, raw_text_filepath, word_level=False, onestop_level='article')
-    # words_df = pd.read_csv(processed_words_filepath)
-    # words_df = add_variables_to_word_data(words_df,
-    #                                       ['article_text_id'], # ['length','frequency','surprisal','sent_length','word_pos','norm_ianum','norm_sent_id'],
-    #                                       corpus_name,
-    #                                       frequency_filepath,
-    #                                       surprisal_filepath)
-    #                                       # processed_words_filepath.replace('.csv','_surprisal_multi_tokens.csv'))
-    # words_df.to_csv(processed_words_filepath, index=False) #.replace('.csv','_all.csv')
+    words_df = pd.read_csv(processed_words_filepath)
+    words_df = add_variables_to_word_data(words_df,
+                                          ['pos_tag'],
+                                          corpus_name,
+                                          frequency_filepath,
+                                          surprisal_filepath)
+                                          # processed_words_filepath.replace('.csv','_surprisal_multi_tokens.csv'))
+    words_df.to_csv(processed_words_filepath, index=False) #.replace('.csv','_all.csv')
 
-    # print('Processing data with eye movements...')
-    # eye_data = pre_process_eye_data(corpus_name, raw_eye_move_filepath)
-    # eye_data.to_csv(processed_eye_move_filepath, index=False)
-    # eye_data = pd.read_csv(processed_eye_move_filepath)
-    # check_alignment(corpus_name, words_df, eye_data)
-    # eye_data = add_variables_to_eye_data(['article_text_id'],
-    #     eye_data, corpus_name, processed_words_filepath, frequency_filepath)
-    # eye_data.to_csv(processed_eye_move_filepath, index=False)
-    # if corpus_name == 'onestop':
-    #     eye_data = pd.read_csv(processed_eye_move_filepath)
-    #     words_df = words_df.merge(eye_data[['text_id','ianum','ia','wordfreq_frequency','gpt2_surprisal','word_length_no_punctuation']],
-    #                               how='left',
-    #                               on=['text_id','ianum','ia'])
-    #     words_df = words_df.drop_duplicates()
-    #     words_df = words_df.rename(columns={'gpt2_surprisal':'surprisal', 'word_length_no_punctuation':'length', 'wordfreq_frequency':'frequency'})
-    #     words_df.to_csv(processed_words_filepath.replace('.csv','_all.csv'), index=False)
+    print('Processing data with eye movements...')
+    eye_data = pre_process_eye_data(corpus_name, raw_eye_move_filepath)
+    check_alignment(corpus_name, words_df, eye_data)
+    eye_data.to_csv(processed_eye_move_filepath, index=False)
+    eye_data = pd.read_csv(processed_eye_move_filepath)
+    eye_data = add_variables_to_eye_data(['sent_info', 'word_pos', 'norm_ianum', 'article_ianum', 'text_id', 'article_text_id'],
+        eye_data, corpus_name, words_df, frequency_filepath)
+    eye_data.to_csv(processed_eye_move_filepath, index=False)
+    if corpus_name == 'onestop':
+        eye_data = pd.read_csv(processed_eye_move_filepath)
+        words_df = words_df.merge(eye_data[['text_id','ianum','ia','wordfreq_frequency','gpt2_surprisal','word_length_no_punctuation','universal_pos']],
+                                  how='left',
+                                  on=['text_id','ianum','ia'])
+        words_df = words_df.drop_duplicates()
+        words_df = words_df.rename(columns={'gpt2_surprisal':'surprisal','word_length_no_punctuation':'length','wordfreq_frequency':'frequency','universal_pos': 'pos_tag'})
+        words_df.to_csv(processed_words_filepath, index=False)
 
 if __name__ == '__main__':
     main()
